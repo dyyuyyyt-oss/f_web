@@ -151,3 +151,6 @@ ai_chat.db
 .env
 .env.local
 .env.*.local
+
+# GitHub Desktop 自带的示例教程仓库（非本项目内容，内含独立 .git）
+desktop-tutorial/
