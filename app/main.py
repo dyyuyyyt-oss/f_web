@@ -37,8 +37,12 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 50)
 
     # 初始化数据库
-    init_db()
-    logger.info("✅ 数据库初始化完成")
+    # 用 try/except 包裹，避免数据库连接失败（如 Render 上 PostgreSQL 尚未就绪）导致应用启动崩溃
+    try:
+        init_db()
+        logger.info("✅ 数据库初始化完成")
+    except Exception as e:
+        logger.error(f"⚠️ 数据库初始化失败: {e}")
 
     # 插入示例数据
     _insert_sample_data()
