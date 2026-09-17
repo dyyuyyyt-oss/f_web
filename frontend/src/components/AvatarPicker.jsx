@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { uploadAvatar } from '../api/characters'
+import { resolveApiUrl } from '../api/config'
 
 // 头像选择器：支持从本地选择图片文件并上传，上传成功后通过 onUploaded 回调返回图片 URL
 export default function AvatarPicker({ previewUrl, onUploaded }) {
@@ -27,7 +28,7 @@ export default function AvatarPicker({ previewUrl, onUploaded }) {
     <div className="flex items-center gap-3">
       <div className="w-16 h-16 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center border border-gray-200 shrink-0">
         {previewUrl ? (
-          <img src={previewUrl} alt="头像预览" className="w-full h-full object-cover" />
+          <img src={resolveApiUrl(previewUrl)} alt="头像预览" className="w-full h-full object-cover" />
         ) : (
           <span className="text-2xl">🙂</span>
         )}

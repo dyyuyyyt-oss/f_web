@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { getCharacters } from '../api/characters'
+import { resolveApiUrl } from '../api/config'
 import CreateCharacterModal from './CreateCharacterModal'
 import EditAvatarModal from './EditAvatarModal'
 
@@ -76,7 +77,9 @@ export default function ChatInterface() {
       let aiResponse = ''
 
       await fetchEventSource(
-        `/api/chat/stream?message=${encodeURIComponent(userMessage)}&character_id=${selectedCharacterId}&user_id=1&allow_emoji=${allowEmoji}`,
+        resolveApiUrl(
+          `/api/chat/stream?message=${encodeURIComponent(userMessage)}&character_id=${selectedCharacterId}&user_id=1&allow_emoji=${allowEmoji}`
+        ),
         {
           method: 'GET',
           onmessage(event) {
@@ -144,7 +147,7 @@ export default function ChatInterface() {
             <div className="w-9 h-9 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center border border-gray-200 shrink-0">
               {selectedCharacter.avatar ? (
                 <img
-                  src={selectedCharacter.avatar}
+                  src={resolveApiUrl(selectedCharacter.avatar)}
                   alt={selectedCharacter.name}
                   className="w-full h-full object-cover"
                 />
