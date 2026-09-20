@@ -3,7 +3,7 @@ SQLAlchemy 数据库会话管理
 提供数据库连接、会话创建、初始化等功能
 """
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 from typing import Generator
@@ -65,6 +65,29 @@ def init_db() -> None:
     在应用启动时调用
     """
     Base.metadata.create_all(bind=engine)
+    _ensure_user_auth_columns()
+
+
+def _ensure_user_auth_columns() -> None:
+    """
+    给已存在的 user 表补上账号系统需要的新列（password_hash、role）
+
+    create_all() 只会创建缺失的表，不会给已存在的表加列；线上（如 Render Postgres）
+    的 user 表在加账号系统之前就已经建好并有数据了，所以这里用 inspect() 检查实际列，
+    缺什么就补什么，全程幂等（多次启动不会重复执行），避免引入 Alembic 迁移脚本。
+    """
+    inspector = inspect(engine)
+    if "user" not in inspector.get_table_names():
+        return  # create_all 应该已经建好表，这里只是防御性检查
+
+    existing_columns = {col["name"] for col in inspector.get_columns("user")}
+    with engine.begin() as conn:
+        if "password_hash" not in existing_columns:
+            conn.execute(text('ALTER TABLE "user" ADD COLUMN password_hash VARCHAR(255)'))
+        if "role" not in existing_columns:
+            conn.execute(
+                text('ALTER TABLE "user" ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT \'user\'')
+            )
 
 
 def get_db() -> Generator[Session, None, None]:

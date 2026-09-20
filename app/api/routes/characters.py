@@ -14,6 +14,8 @@ from app.schemas.character import (
     AvatarUploadResponse,
 )
 from app.utils.upload import save_avatar_file
+from app.api.deps import get_current_user
+from app.models.user import User
 from typing import List
 import logging
 
@@ -26,6 +28,7 @@ async def list_characters(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     获取角色列表
@@ -49,6 +52,7 @@ async def list_characters(
 async def get_character(
     character_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     获取单个角色信息
@@ -86,6 +90,7 @@ async def get_character(
 async def create_character(
     character: CharacterCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     创建新角色
@@ -127,7 +132,10 @@ async def create_character(
         500: {"description": "服务器内部错误，上传失败"},
     },
 )
-async def upload_avatar(file: UploadFile = File(..., description="头像图片文件")):
+async def upload_avatar(
+    file: UploadFile = File(..., description="头像图片文件"),
+    current_user: User = Depends(get_current_user),
+):
     """
     上传角色头像图片文件
 
@@ -164,6 +172,7 @@ async def update_character_avatar(
     character_id: int,
     payload: CharacterAvatarUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     更新已有角色的头像

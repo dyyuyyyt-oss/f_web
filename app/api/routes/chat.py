@@ -10,6 +10,8 @@ from app.db.session import get_db
 from app.schemas.chat import ChatMessageInput, ChatSendResponse
 from app.services.chat_service import ChatService
 from app.models import Character
+from app.api.deps import get_current_user
+from app.models.user import User
 import logging
 
 router = APIRouter(prefix="/chat", tags=["聊天"])
@@ -20,10 +22,10 @@ logger = logging.getLogger(__name__)
 async def stream_chat(
     message: str = Query(..., min_length=1, max_length=4096),
     character_id: int = Query(default=1, gt=0),
-    user_id: int = Query(default=1, gt=0),
     conversation_id: int = Query(default=None, gt=0),
     allow_emoji: bool = Query(default=True, description="是否允许 AI 回复中包含表情符号"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     流式聊天端点
@@ -32,12 +34,13 @@ async def stream_chat(
     Query 参数：
     - message: 用户的消息（必需）
     - character_id: 角色 ID（默认为 1）
-    - user_id: 用户 ID（默认为 1）
     - conversation_id: 对话 ID（可选，不提供则创建新对话）
     - allow_emoji: 是否允许 AI 回复中包含表情符号（默认 True）
 
+    用户身份从登录令牌中获取，不再信任客户端传入的 user_id
+
     示例：
-    GET /api/chat/stream?message=你好&character_id=1&user_id=1
+    GET /api/chat/stream?message=你好&character_id=1
 
     返回格式 (SSE)：
     data: 你
@@ -54,7 +57,7 @@ async def stream_chat(
                 user_message=message,
                 conversation_id=conversation_id,
                 character_id=character_id,
-                user_id=user_id,
+                user_id=current_user.id,
                 allow_emoji=allow_emoji,
             ):
                 yield f"data: {chunk}\n\n"
@@ -77,10 +80,13 @@ async def stream_chat(
 async def send_message(
     request: ChatMessageInput,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     发送消息（非流式）
     返回 AI 的完整回复，包含对话 ID 和角色 ID
+
+    用户身份从登录令牌中获取，不再信任客户端传入的 user_id
 
     Args:
         request: ChatMessageInput 请求体
@@ -102,7 +108,7 @@ async def send_message(
         reply = await chat_service.chat(
             user_message=request.message,
             character_id=request.character_id,
-            user_id=request.user_id,
+            user_id=current_user.id,
             allow_emoji=request.allow_emoji,
         )
 
@@ -113,7 +119,7 @@ async def send_message(
         conversation = (
             db.query(Conversation)
             .filter_by(
-                user_id=request.user_id,
+                user_id=current_user.id,
                 character_id=request.character_id,
             )
             .order_by(Conversation.created_at.desc())

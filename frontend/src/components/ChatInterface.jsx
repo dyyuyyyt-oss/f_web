@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
+import { useNavigate } from 'react-router-dom'
 import { getCharacters } from '../api/characters'
 import { resolveApiUrl } from '../api/config'
+import { getToken } from '../api/http'
+import { useAuth } from '../context/AuthContext'
 import CreateCharacterModal from './CreateCharacterModal'
 import EditAvatarModal from './EditAvatarModal'
 
@@ -15,6 +18,13 @@ export default function ChatInterface() {
   const [isEditAvatarModalOpen, setIsEditAvatarModalOpen] = useState(false)
   const [allowEmoji, setAllowEmoji] = useState(true)
   const messagesEndRef = useRef(null)
+  const navigate = useNavigate()
+  const { logout } = useAuth()
+
+  const handleLogout = () => {
+    logout()
+    navigate('/login', { replace: true })
+  }
 
   // 获取角色列表
   useEffect(() => {
@@ -78,10 +88,13 @@ export default function ChatInterface() {
 
       await fetchEventSource(
         resolveApiUrl(
-          `/api/chat/stream?message=${encodeURIComponent(userMessage)}&character_id=${selectedCharacterId}&user_id=1&allow_emoji=${allowEmoji}`
+          `/api/chat/stream?message=${encodeURIComponent(userMessage)}&character_id=${selectedCharacterId}&allow_emoji=${allowEmoji}`
         ),
         {
           method: 'GET',
+          headers: {
+            Authorization: `Bearer ${getToken()}`,
+          },
           onmessage(event) {
             if (event.data) {
               aiResponse += event.data
@@ -199,6 +212,12 @@ export default function ChatInterface() {
             />
             允许表情回复
           </label>
+          <button
+            onClick={handleLogout}
+            className="px-4 py-2 text-sm bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors"
+          >
+            退出登录
+          </button>
         </div>
         {selectedCharacter && (
           <p className="text-sm text-gray-500 mt-3">

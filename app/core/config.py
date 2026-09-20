@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     # ==================== API 路由前缀 ====================
     api_prefix: str = "/api"
 
+    # ==================== 认证配置 ====================
+    # 用于签发/校验登录 JWT 的密钥；生产环境必须通过环境变量 SECRET_KEY 覆盖这个开发默认值
+    secret_key: str = "dev-only-insecure-secret-change-me"
+    access_token_expire_minutes: int = 60 * 24 * 7  # 登录 token 有效期：7 天
+
     # ==================== 流式响应缓冲 ====================
     stream_buffer_size: int = 10  # 单位：字符数
 

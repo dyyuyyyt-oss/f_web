@@ -41,7 +41,6 @@ class ChatMessageInput(BaseModel):
 
     message: str = Field(..., min_length=1, max_length=4096, description="用户发送的消息内容")
     character_id: int = Field(..., gt=0, description="角色 ID")
-    user_id: int = Field(default=1, gt=0, description="用户 ID")  # TODO: 实现真正的用户认证
     allow_emoji: bool = Field(default=True, description="是否允许 AI 回复中包含表情符号，默认允许")
 
 

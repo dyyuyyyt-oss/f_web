@@ -11,7 +11,8 @@ from app.core.config import settings
 from app.db.session import init_db, close_db
 from app.models import Character, User, Conversation, Message
 from app.db.session import SessionLocal
-from app.api.routes import health, chat, characters
+from app.api.routes import health, chat, characters, auth, admin
+from app.core.security import hash_password
 import logging
 from datetime import datetime
 
@@ -48,6 +49,10 @@ async def lifespan(app: FastAPI):
     _insert_sample_data()
     logger.info("✅ 示例数据插入完成")
 
+    # 插入预置账号（普通用户 confur、管理员 con）
+    _insert_preset_accounts()
+    logger.info("✅ 预置账号检查完成")
+
     # 打印当前配置
     logger.info(f"📋 当前配置:")
     logger.info(f"   - AI 提供商: {settings.ai_provider}")
@@ -75,6 +80,8 @@ app = FastAPI(
         {"name": "健康检查", "description": "服务健康状态相关接口"},
         {"name": "聊天", "description": "AI 对话相关接口，支持流式输出"},
         {"name": "角色", "description": "角色卡管理相关接口"},
+        {"name": "认证", "description": "登录、注册申请相关接口"},
+        {"name": "管理后台", "description": "账号管理与注册审核相关接口，仅管理员可访问"},
     ],
     lifespan=lifespan,
 )
@@ -97,6 +104,8 @@ app.include_router(health.router)
 # 需要 API 前缀的路由
 app.include_router(chat.router, prefix=settings.api_prefix)
 app.include_router(characters.router, prefix=settings.api_prefix)
+app.include_router(auth.router, prefix=settings.api_prefix)
+app.include_router(admin.router, prefix=settings.api_prefix)
 
 
 # ==================== 静态文件（头像等上传文件）====================
@@ -186,6 +195,41 @@ def _insert_sample_data() -> None:
 
     except Exception as e:
         logger.error(f"插入示例数据失败: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _insert_preset_accounts() -> None:
+    """
+    插入预置账号：普通用户 confur 和管理员 con
+    密码统一哈希存储，幂等（已存在则跳过）
+    """
+    db = SessionLocal()
+
+    try:
+        preset_accounts = [
+            {"username": "confur", "password": "1101062011Zz", "role": "user"},
+            {"username": "con", "password": "1101062011Zz", "role": "admin"},
+        ]
+
+        for account in preset_accounts:
+            existing = db.query(User).filter_by(username=account["username"]).first()
+            if existing:
+                continue
+
+            new_user = User(
+                username=account["username"],
+                password_hash=hash_password(account["password"]),
+                role=account["role"],
+            )
+            db.add(new_user)
+            db.commit()
+            db.refresh(new_user)
+            logger.info(f"✨ 创建预置账号: {new_user.username}（{new_user.role}）")
+
+    except Exception as e:
+        logger.error(f"插入预置账号失败: {e}")
         db.rollback()
     finally:
         db.close()

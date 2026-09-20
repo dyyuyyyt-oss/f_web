@@ -1,25 +1,15 @@
 // 角色相关的 API 封装
-// 本地开发时走 vite.config.js 中的代理转发到后端；生产环境经 resolveApiUrl 指向真实后端地址
-import { resolveApiUrl } from './config'
-
-// 从失败响应中提取错误信息
-// FastAPI 422 校验错误的 detail 是一个数组，其他错误的 detail 是字符串
-async function extractErrorMessage(response, fallback) {
-  const errorBody = await response.json().catch(() => null)
-  if (!errorBody?.detail) return fallback
-  return Array.isArray(errorBody.detail)
-    ? errorBody.detail.map((item) => item.msg).join('; ')
-    : errorBody.detail
-}
+// 所有请求都需要登录，统一走 authFetch 自动附带登录令牌
+import { authFetch, extractErrorMessage } from './http'
 
 /**
  * 获取角色列表
  * @returns {Promise<Array>} 角色数组
  */
 export async function getCharacters() {
-  const response = await fetch(resolveApiUrl('/api/characters'))
+  const response = await authFetch('/api/characters')
   if (!response.ok) {
-    throw new Error('获取角色列表失败')
+    throw new Error(await extractErrorMessage(response, '获取角色列表失败'))
   }
   return response.json()
 }
@@ -30,9 +20,9 @@ export async function getCharacters() {
  * @returns {Promise<Object>} 角色详情
  */
 export async function getCharacter(id) {
-  const response = await fetch(resolveApiUrl(`/api/characters/${id}`))
+  const response = await authFetch(`/api/characters/${id}`)
   if (!response.ok) {
-    throw new Error('获取角色详情失败')
+    throw new Error(await extractErrorMessage(response, '获取角色详情失败'))
   }
   return response.json()
 }
@@ -43,7 +33,7 @@ export async function getCharacter(id) {
  * @returns {Promise<Object>} 新建的角色
  */
 export async function createCharacter(data) {
-  const response = await fetch(resolveApiUrl('/api/characters'), {
+  const response = await authFetch('/api/characters', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -65,7 +55,7 @@ export async function uploadAvatar(file) {
   const formData = new FormData()
   formData.append('file', file)
 
-  const response = await fetch(resolveApiUrl('/api/characters/avatar'), {
+  const response = await authFetch('/api/characters/avatar', {
     method: 'POST',
     body: formData,
   })
@@ -84,7 +74,7 @@ export async function uploadAvatar(file) {
  * @returns {Promise<Object>} 更新后的角色信息
  */
 export async function updateCharacterAvatar(id, avatarUrl) {
-  const response = await fetch(resolveApiUrl(`/api/characters/${id}/avatar`), {
+  const response = await authFetch(`/api/characters/${id}/avatar`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ avatar: avatarUrl }),
