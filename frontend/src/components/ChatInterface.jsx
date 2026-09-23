@@ -3,6 +3,7 @@ import { fetchEventSource } from '@microsoft/fetch-event-source'
 import ReactMarkdown from 'react-markdown'
 import { useNavigate } from 'react-router-dom'
 import { getCharacters } from '../api/characters'
+import { getChatHistory } from '../api/chat'
 import { uploadChatImage } from '../api/upload'
 import { resolveApiUrl } from '../api/config'
 import { getToken } from '../api/http'
@@ -82,11 +83,33 @@ export default function ChatInterface() {
     fetchCharacters()
   }, [])
 
-  // 新角色创建成功后，追加到列表并自动选中
+  // 进入某个角色的聊天页（首次选中、切换角色、刷新页面后重新选中）时拉取历史消息；
+  // 会话为空时后端会自动插入开场白，这里直接渲染后端返回的结果即可
+  useEffect(() => {
+    if (!selectedCharacterId) {
+      setMessages([])
+      return
+    }
+
+    const fetchHistory = async () => {
+      try {
+        const data = await getChatHistory(selectedCharacterId)
+        setMessages(
+          (data || []).map((m) => ({ role: m.role, content: m.content, image_url: m.image_url }))
+        )
+      } catch (error) {
+        console.error('Failed to fetch chat history:', error)
+        setMessages([])
+      }
+    }
+
+    fetchHistory()
+  }, [selectedCharacterId])
+
+  // 新角色创建成功后，追加到列表并自动选中（上面的 useEffect 会随之拉取历史/开场白）
   const handleCharacterCreated = (newCharacter) => {
     setCharacters((prev) => [...prev, newCharacter])
     setSelectedCharacterId(newCharacter.id)
-    setMessages([])
     setIsCreateModalOpen(false)
   }
 
@@ -215,7 +238,8 @@ export default function ChatInterface() {
     }
   }
 
-  // 清空对话
+  // 清空对话：只清空当前页面显示，不会删除后端已保存的历史消息，
+  // 所以切换角色再切回来、或刷新页面，之前的消息仍会重新加载出来
   const handleClearMessages = () => {
     setMessages([])
   }
