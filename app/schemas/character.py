@@ -48,3 +48,22 @@ class AvatarUploadResponse(BaseModel):
     """头像图片上传成功后的响应 Schema"""
 
     url: str = Field(..., description="上传后的图片访问 URL，可用于角色的 avatar 字段")
+
+
+class CharacterUpdate(BaseModel):
+    """编辑角色的请求 Schema，字段与 CharacterCreate 相同但全部可选，只更新实际传入的字段"""
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255, description="角色名称")
+    avatar: Optional[str] = Field(default=None, description="角色头像图片 URL")
+    persona: Optional[str] = Field(default=None, min_length=1, description="角色的人设描述")
+    greeting: Optional[str] = Field(default=None, description="角色的欢迎语或问候语")
+    scenario: Optional[str] = Field(default=None, description="角色对话的场景设定")
+    example_dialogue: Optional[str] = Field(default=None, description="角色示例对话内容")
+    speaking_style: Optional[str] = Field(default=None, description="角色的说话风格")
+    catchphrase: Optional[str] = Field(default=None, description="角色的口头禅")
+
+
+class DeleteCharacterResponse(BaseModel):
+    """删除角色的响应 Schema"""
+
+    deleted: bool = Field(..., description="是否删除成功")

@@ -1,20 +1,22 @@
 import { useState } from 'react'
-import { createCharacter } from '../api/characters'
+import { createCharacter, updateCharacter } from '../api/characters'
 import AvatarPicker from './AvatarPicker'
 
-// 创建角色弹窗
+// 创建/编辑角色弹窗（同一个组件复用：传入 character 就是编辑模式，否则是创建模式）
+// character: 要编辑的角色对象，为空则是创建新角色
 // onClose: 关闭弹窗回调
-// onCreated: 创建成功回调，参数为新建的角色对象
-export default function CreateCharacterModal({ onClose, onCreated }) {
+// onSaved: 创建/编辑成功回调，参数为保存后的角色对象
+export default function CreateCharacterModal({ character = null, onClose, onSaved }) {
+  const isEditing = Boolean(character)
   const [form, setForm] = useState({
-    name: '',
-    avatar: '',
-    persona: '',
-    greeting: '',
-    scenario: '',
-    example_dialogue: '',
-    speaking_style: '',
-    catchphrase: '',
+    name: character?.name || '',
+    avatar: character?.avatar || '',
+    persona: character?.persona || '',
+    greeting: character?.greeting || '',
+    scenario: character?.scenario || '',
+    example_dialogue: character?.example_dialogue || '',
+    speaking_style: character?.speaking_style || '',
+    catchphrase: character?.catchphrase || '',
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -34,7 +36,7 @@ export default function CreateCharacterModal({ onClose, onCreated }) {
 
     setIsSubmitting(true)
     try {
-      // 可选字段为空字符串时不提交，交由后端使用默认值 None
+      // 可选字段为空字符串时不提交，交由后端使用默认值 None（编辑模式下会清空该字段原有的值）
       const payload = {
         name: form.name.trim(),
         persona: form.persona.trim(),
@@ -45,10 +47,12 @@ export default function CreateCharacterModal({ onClose, onCreated }) {
         speaking_style: form.speaking_style.trim() || null,
         catchphrase: form.catchphrase.trim() || null,
       }
-      const newCharacter = await createCharacter(payload)
-      onCreated(newCharacter)
+      const savedCharacter = isEditing
+        ? await updateCharacter(character.id, payload)
+        : await createCharacter(payload)
+      onSaved(savedCharacter)
     } catch (err) {
-      setError(err.message || '创建角色失败')
+      setError(err.message || (isEditing ? '编辑角色失败' : '创建角色失败'))
     } finally {
       setIsSubmitting(false)
     }
@@ -58,7 +62,9 @@ export default function CreateCharacterModal({ onClose, onCreated }) {
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-800">✨ 创建角色</h2>
+          <h2 className="text-lg font-bold text-gray-800">
+            {isEditing ? '✏️ 编辑角色' : '✨ 创建角色'}
+          </h2>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 text-xl leading-none"
@@ -180,7 +186,7 @@ export default function CreateCharacterModal({ onClose, onCreated }) {
               disabled={isSubmitting}
               className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium"
             >
-              {isSubmitting ? '创建中...' : '创建角色'}
+              {isSubmitting ? (isEditing ? '保存中...' : '创建中...') : isEditing ? '保存修改' : '创建角色'}
             </button>
           </div>
         </form>

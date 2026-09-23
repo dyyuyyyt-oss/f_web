@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import ReactMarkdown from 'react-markdown'
 import { useNavigate } from 'react-router-dom'
-import { getCharacters } from '../api/characters'
+import { getCharacters, deleteCharacter } from '../api/characters'
 import { getChatHistory, regenerateReply, clearChatHistory } from '../api/chat'
 import { uploadChatImage } from '../api/upload'
 import { resolveApiUrl } from '../api/config'
@@ -30,7 +30,9 @@ export default function ChatInterface() {
   const [clearError, setClearError] = useState('')
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [isCharacterModalOpen, setIsCharacterModalOpen] = useState(false)
+  const [editingCharacter, setEditingCharacter] = useState(null) // null = 创建模式，有值 = 编辑该角色
+  const [deleteError, setDeleteError] = useState('')
   const [isEditAvatarModalOpen, setIsEditAvatarModalOpen] = useState(false)
   const [allowEmoji, setAllowEmoji] = useState(true)
   const [pendingImage, setPendingImage] = useState(null) // { url } 已上传成功、待随消息一起发送的图片
@@ -152,11 +154,18 @@ export default function ChatInterface() {
     }
   }, [selectedCharacterId])
 
-  // 新角色创建成功后，追加到列表并自动选中（上面的 useEffect 会随之拉取历史/开场白）
-  const handleCharacterCreated = (newCharacter) => {
-    setCharacters((prev) => [...prev, newCharacter])
-    setSelectedCharacterId(newCharacter.id)
-    setIsCreateModalOpen(false)
+  // 创建或编辑角色成功后统一处理：新建就追加到列表，编辑就替换列表里对应的项，
+  // 然后切到这个角色（编辑时通常本来就在聊它，重新赋值不会触发多余的历史刷新）
+  const handleCharacterSaved = (savedCharacter) => {
+    setCharacters((prev) => {
+      const exists = prev.some((c) => c.id === savedCharacter.id)
+      return exists
+        ? prev.map((c) => (c.id === savedCharacter.id ? savedCharacter : c))
+        : [...prev, savedCharacter]
+    })
+    setSelectedCharacterId(savedCharacter.id)
+    setIsCharacterModalOpen(false)
+    setEditingCharacter(null)
   }
 
   // 角色头像更新成功后，同步到列表中对应的角色
@@ -165,6 +174,29 @@ export default function ChatInterface() {
       prev.map((c) => (c.id === updatedCharacter.id ? updatedCharacter : c))
     )
     setIsEditAvatarModalOpen(false)
+  }
+
+  // 删除角色：需要用户二次确认，成功后从列表移除；如果删的正是当前正在聊的角色，
+  // 自动切到列表里第一个角色（没有其他角色则清空选中，聊天界面会随之清空）
+  const handleDeleteCharacter = async () => {
+    if (!selectedCharacter) return
+
+    const confirmed = window.confirm(
+      `确定删除角色「${selectedCharacter.name}」吗？该操作会同时删除该角色的所有聊天记录，且不可恢复。`
+    )
+    if (!confirmed) return
+
+    const deletedId = selectedCharacter.id
+    setDeleteError('')
+    try {
+      await deleteCharacter(deletedId)
+      const remaining = characters.filter((c) => c.id !== deletedId)
+      setCharacters(remaining)
+      setSelectedCharacterId(remaining.length > 0 ? remaining[0].id : null)
+    } catch (error) {
+      console.error('Delete character error:', error)
+      setDeleteError(error.message || '删除角色失败，请重试')
+    }
   }
 
   // 自动滚动到最新消息
@@ -387,7 +419,31 @@ export default function ChatInterface() {
             更换头像
           </button>
           <button
-            onClick={() => setIsCreateModalOpen(true)}
+            onClick={() => {
+              setEditingCharacter(selectedCharacter)
+              setIsCharacterModalOpen(true)
+            }}
+            disabled={!selectedCharacter}
+            className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label="编辑角色"
+            title="编辑角色"
+          >
+            ✏️ 编辑
+          </button>
+          <button
+            onClick={handleDeleteCharacter}
+            disabled={!selectedCharacter}
+            className="px-3 py-2 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label="删除角色"
+            title="删除角色"
+          >
+            🗑️ 删除
+          </button>
+          <button
+            onClick={() => {
+              setEditingCharacter(null)
+              setIsCharacterModalOpen(true)
+            }}
             className="px-4 py-2 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors font-medium"
           >
             + 创建角色
@@ -421,6 +477,9 @@ export default function ChatInterface() {
         )}
         {clearError && (
           <p className="text-sm text-red-600 mt-2">{clearError}</p>
+        )}
+        {deleteError && (
+          <p className="text-sm text-red-600 mt-2">{deleteError}</p>
         )}
       </div>
 
@@ -565,10 +624,14 @@ export default function ChatInterface() {
         </p>
       </div>
 
-      {isCreateModalOpen && (
+      {isCharacterModalOpen && (
         <CreateCharacterModal
-          onClose={() => setIsCreateModalOpen(false)}
-          onCreated={handleCharacterCreated}
+          character={editingCharacter}
+          onClose={() => {
+            setIsCharacterModalOpen(false)
+            setEditingCharacter(null)
+          }}
+          onSaved={handleCharacterSaved}
         />
       )}
 

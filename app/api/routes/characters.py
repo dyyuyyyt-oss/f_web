@@ -6,12 +6,14 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from app.db.session import get_db
-from app.models.character import Character
+from app.models import Character, Conversation, Message
 from app.schemas.character import (
     CharacterResponseSchema,
     CharacterCreate,
     CharacterAvatarUpdate,
     AvatarUploadResponse,
+    CharacterUpdate,
+    DeleteCharacterResponse,
 )
 from app.utils.upload import save_avatar_file
 from app.api.deps import get_current_user
@@ -199,3 +201,109 @@ async def update_character_avatar(
     except Exception as e:
         logger.error(f"Error updating avatar for character {character_id}: {e}")
         raise HTTPException(status_code=500, detail="更新角色头像失败")
+
+
+@router.put(
+    "/{character_id}",
+    tags=["角色"],
+    response_model=CharacterResponseSchema,
+    summary="编辑角色",
+    description="修改角色卡信息，只更新传入的字段。",
+    responses={
+        200: {"description": "编辑成功，返回更新后的角色完整信息"},
+        404: {"description": "角色不存在"},
+        500: {"description": "服务器内部错误，编辑角色失败"},
+    },
+)
+async def update_character(
+    character_id: int,
+    payload: CharacterUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    编辑已有角色，只更新请求体中非 None 的字段
+
+    Args:
+        character_id: 角色 ID
+        payload: 要更新的字段（未传的字段保持原值不变）
+
+    Returns:
+        更新后的角色完整信息
+    """
+    # TODO: Character 模型目前没有 owner_id/user_id 字段，无法区分"谁创建的角色"，
+    # 暂时允许任何登录用户编辑任意角色；后续如果要限制"只有创建者能编辑"，
+    # 需要先给 Character 加一个所有者字段并做一次历史数据迁移
+    try:
+        character = db.query(Character).filter(Character.id == character_id).first()
+        if not character:
+            raise HTTPException(status_code=404, detail="角色不存在")
+
+        update_data = payload.model_dump(exclude_none=True)
+        for field, value in update_data.items():
+            setattr(character, field, value)
+
+        db.commit()
+        db.refresh(character)
+        return character
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating character {character_id}: {e}")
+        raise HTTPException(status_code=500, detail="编辑角色失败")
+
+
+@router.delete(
+    "/{character_id}",
+    tags=["角色"],
+    response_model=DeleteCharacterResponse,
+    summary="删除角色",
+    description="删除角色及其关联的会话和消息记录。",
+    responses={
+        200: {"description": "删除成功"},
+        404: {"description": "角色不存在"},
+        500: {"description": "服务器内部错误，删除角色失败"},
+    },
+)
+async def delete_character(
+    character_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    删除角色，级联删除该角色下所有会话及消息
+
+    Args:
+        character_id: 角色 ID
+
+    Returns:
+        {"deleted": true}
+    """
+    # TODO: 权限同编辑角色——Character 暂无 owner_id，先允许任何登录用户删除任意角色
+    try:
+        character = db.query(Character).filter(Character.id == character_id).first()
+        if not character:
+            raise HTTPException(status_code=404, detail="角色不存在")
+
+        # 有外键约束，必须先删 message，再删 conversation，最后删 character
+        conversation_ids = [
+            row.id
+            for row in db.query(Conversation.id).filter_by(character_id=character_id).all()
+        ]
+        if conversation_ids:
+            db.query(Message).filter(Message.conversation_id.in_(conversation_ids)).delete(
+                synchronize_session=False
+            )
+            db.query(Conversation).filter(Conversation.id.in_(conversation_ids)).delete(
+                synchronize_session=False
+            )
+
+        db.delete(character)
+        db.commit()
+        return DeleteCharacterResponse(deleted=True)
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting character {character_id}: {e}")
+        raise HTTPException(status_code=500, detail="删除角色失败")

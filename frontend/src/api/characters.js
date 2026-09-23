@@ -86,3 +86,40 @@ export async function updateCharacterAvatar(id, avatarUrl) {
 
   return response.json()
 }
+
+/**
+ * 编辑角色：只需传入要修改的字段，未传的字段后端会保持原值不变
+ * @param {number} id 角色 ID
+ * @param {Object} data 要更新的字段（name/avatar/persona/greeting/scenario/example_dialogue/speaking_style/catchphrase）
+ * @returns {Promise<Object>} 更新后的角色完整信息
+ */
+export async function updateCharacter(id, data) {
+  const response = await authFetch(`/api/characters/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, '编辑角色失败'))
+  }
+
+  return response.json()
+}
+
+/**
+ * 删除角色（后端会级联删除该角色下所有会话和消息，不可恢复）
+ * @param {number} id 角色 ID
+ * @returns {Promise<{deleted: boolean}>}
+ */
+export async function deleteCharacter(id) {
+  const response = await authFetch(`/api/characters/${id}`, {
+    method: 'DELETE',
+  })
+
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, '删除角色失败'))
+  }
+
+  return response.json()
+}
