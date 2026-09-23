@@ -110,6 +110,8 @@ async def create_character(
             greeting=character.greeting,
             scenario=character.scenario,
             example_dialogue=character.example_dialogue,
+            speaking_style=character.speaking_style,
+            catchphrase=character.catchphrase,
         )
         db.add(db_character)
         db.commit()

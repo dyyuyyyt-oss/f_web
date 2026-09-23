@@ -13,6 +13,8 @@ export default function CreateCharacterModal({ onClose, onCreated }) {
     greeting: '',
     scenario: '',
     example_dialogue: '',
+    speaking_style: '',
+    catchphrase: '',
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -40,6 +42,8 @@ export default function CreateCharacterModal({ onClose, onCreated }) {
         greeting: form.greeting.trim() || null,
         scenario: form.scenario.trim() || null,
         example_dialogue: form.example_dialogue.trim() || null,
+        speaking_style: form.speaking_style.trim() || null,
+        catchphrase: form.catchphrase.trim() || null,
       }
       const newCharacter = await createCharacter(payload)
       onCreated(newCharacter)
@@ -96,6 +100,31 @@ export default function CreateCharacterModal({ onClose, onCreated }) {
               placeholder="描述角色的性格、说话风格等"
               rows="3"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm resize-none"
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              越详细，AI 回复越贴近角色。建议描述性格、背景故事、说话习惯。
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">说话风格</label>
+            <input
+              type="text"
+              value={form.speaking_style}
+              onChange={handleChange('speaking_style')}
+              placeholder="例如：温柔、爱撒娇、说话简短有力"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">口头禅</label>
+            <input
+              type="text"
+              value={form.catchphrase}
+              onChange={handleChange('catchphrase')}
+              placeholder="例如：哼、才不是呢、喵~"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
             />
           </div>
 

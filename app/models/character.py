@@ -19,6 +19,8 @@ class Character(Base):
     greeting = Column(Text, nullable=True)  # 初始问候语
     scenario = Column(Text, nullable=True)  # 对话场景设定
     example_dialogue = Column(Text, nullable=True)  # 示例对话
+    speaking_style = Column(Text, nullable=True)  # 说话风格，如"温柔、爱撒娇、说话简短有力"
+    catchphrase = Column(Text, nullable=True)  # 口头禅，如"哼、才不是呢、喵~"
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     def __repr__(self) -> str:

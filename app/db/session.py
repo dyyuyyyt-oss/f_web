@@ -67,6 +67,7 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_user_auth_columns()
     _ensure_message_image_columns()
+    _ensure_character_persona_columns()
 
 
 def _ensure_user_auth_columns() -> None:
@@ -106,6 +107,23 @@ def _ensure_message_image_columns() -> None:
             conn.execute(text("ALTER TABLE message ADD COLUMN image_url VARCHAR(500)"))
         if "image_description" not in existing_columns:
             conn.execute(text("ALTER TABLE message ADD COLUMN image_description TEXT"))
+
+
+def _ensure_character_persona_columns() -> None:
+    """
+    给已存在的 character 表补上说话风格/口头禅需要的新列（speaking_style、catchphrase）
+    原理同 _ensure_user_auth_columns()，全程幂等
+    """
+    inspector = inspect(engine)
+    if "character" not in inspector.get_table_names():
+        return
+
+    existing_columns = {col["name"] for col in inspector.get_columns("character")}
+    with engine.begin() as conn:
+        if "speaking_style" not in existing_columns:
+            conn.execute(text("ALTER TABLE character ADD COLUMN speaking_style TEXT"))
+        if "catchphrase" not in existing_columns:
+            conn.execute(text("ALTER TABLE character ADD COLUMN catchphrase TEXT"))
 
 
 def get_db() -> Generator[Session, None, None]:

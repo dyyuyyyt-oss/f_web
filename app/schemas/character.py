@@ -16,6 +16,8 @@ class CharacterCreate(BaseModel):
     greeting: Optional[str] = Field(default=None, description="角色的欢迎语或问候语，可选")
     scenario: Optional[str] = Field(default=None, description="角色对话的场景设定，可选")
     example_dialogue: Optional[str] = Field(default=None, description="角色示例对话内容，可选")
+    speaking_style: Optional[str] = Field(default=None, description="角色的说话风格，可选")
+    catchphrase: Optional[str] = Field(default=None, description="角色的口头禅，可选")
 
 
 class CharacterResponseSchema(BaseModel):
@@ -28,6 +30,8 @@ class CharacterResponseSchema(BaseModel):
     greeting: Optional[str] = Field(default=None, description="角色的欢迎语或问候语")
     scenario: Optional[str] = Field(default=None, description="角色对话的场景设定")
     example_dialogue: Optional[str] = Field(default=None, description="角色示例对话内容")
+    speaking_style: Optional[str] = Field(default=None, description="角色的说话风格")
+    catchphrase: Optional[str] = Field(default=None, description="角色的口头禅")
     created_at: datetime = Field(..., description="角色创建时间")
 
     class Config:
