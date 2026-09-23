@@ -6,10 +6,11 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from typing import List
 from app.db.session import get_db
-from app.schemas.chat import ChatMessageInput, ChatSendResponse
+from app.schemas.chat import ChatMessageInput, ChatSendResponse, MessageSchema
 from app.services.chat_service import ChatService
-from app.models import Character
+from app.models import Character, Conversation, Message
 from app.api.deps import get_current_user
 from app.models.user import User
 import logging
@@ -118,9 +119,6 @@ async def send_message(
         )
 
         # 获取最新创建的对话 ID（聊天服务已创建或返回现有会话）
-        # 这里需要从数据库查询最新的对话
-        from app.models import Conversation
-
         conversation = (
             db.query(Conversation)
             .filter_by(
@@ -151,3 +149,59 @@ async def send_message(
             status_code=500,
             detail=f"发送消息失败: {str(e)}",
         )
+
+
+@router.get(
+    "/history",
+    tags=["聊天"],
+    response_model=List[MessageSchema],
+    summary="获取聊天历史",
+    description="返回当前登录用户与指定角色的历史消息（按时间正序）；如果还没有任何消息，会自动插入角色开场白作为第一条消息。",
+    responses={
+        200: {"description": "返回历史消息列表"},
+        404: {"description": "角色不存在"},
+        500: {"description": "服务器内部错误，获取聊天历史失败"},
+    },
+)
+async def get_chat_history(
+    character_id: int = Query(..., gt=0, description="角色 ID"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    获取当前登录用户与指定角色的聊天历史
+    用户与角色的多轮对话都累积在同一个会话里，还没有会话时会自动新建并插入开场白
+
+    Args:
+        character_id: 角色 ID
+
+    Returns:
+        按时间正序排列的历史消息列表
+    """
+    try:
+        character = db.query(Character).filter_by(id=character_id).first()
+        if not character:
+            raise HTTPException(status_code=404, detail="角色不存在")
+
+        chat_service = ChatService()
+        try:
+            svc_db = chat_service.get_db()
+            conversation = chat_service._get_or_create_conversation(
+                svc_db, current_user.id, character_id, character
+            )
+            await chat_service.ensure_greeting(conversation.id, character)
+        finally:
+            chat_service.close_db()
+
+        messages = (
+            db.query(Message)
+            .filter_by(conversation_id=conversation.id)
+            .order_by(Message.created_at)
+            .all()
+        )
+        return messages
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching chat history: {e}")
+        raise HTTPException(status_code=500, detail="获取聊天历史失败")

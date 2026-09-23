@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 # 图片识别失败时的降级提示，直接告诉 AI 图片识别失败，让它引导用户用文字描述
 IMAGE_DESCRIBE_FALLBACK = "用户发送了一张图片，但图片内容识别失败，请礼貌地让用户用文字描述一下"
 
+# 发给 AI 的历史消息窗口大小（不含 system 消息），避免把全部历史都塞进去导致 token 爆炸
+HISTORY_WINDOW_SIZE = 20
+
 
 def _build_message_content_for_ai(content: str, image_description: Optional[str]) -> str:
     """
@@ -80,6 +83,43 @@ class ChatService:
         """关闭数据库会话"""
         if self.db:
             self.db.close()
+
+    def _get_or_create_conversation(
+        self, db: Session, user_id: int, character_id: int, character
+    ) -> Conversation:
+        """
+        获取这个用户与这个角色最近的一次会话，没有则新建一个
+
+        同一个用户和同一个角色的多轮对话要持续累积在同一个会话里，
+        而不是每发一条消息就新建一个会话——否则历史记忆、开场白机制都没有意义
+
+        Args:
+            db: 数据库会话
+            user_id: 用户 ID
+            character_id: 角色 ID
+            character: Character 模型实例，仅在需要新建会话时用来生成标题
+
+        Returns:
+            已存在或新建的 Conversation 实例
+        """
+        conversation = (
+            db.query(Conversation)
+            .filter_by(user_id=user_id, character_id=character_id)
+            .order_by(Conversation.created_at.desc())
+            .first()
+        )
+        if conversation:
+            return conversation
+
+        conversation = Conversation(
+            user_id=user_id,
+            character_id=character_id,
+            title=f"与 {character.name} 的对话",
+        )
+        db.add(conversation)
+        db.commit()
+        db.refresh(conversation)
+        return conversation
 
     async def mock_stream_response(self) -> AsyncGenerator[str, None]:
         """
@@ -155,16 +195,10 @@ class ChatService:
                 yield "[错误] 角色不存在"
                 return
 
-            # 如果没有提供对话 ID，创建新对话
+            # 如果没有提供对话 ID，复用该用户与该角色最近的会话（没有就新建），
+            # 这样多轮对话会持续累积在同一个会话里，历史记忆和窗口截断才有意义
             if conversation_id is None:
-                conversation = Conversation(
-                    user_id=user_id,
-                    character_id=character_id,
-                    title=f"与 {character.name} 的对话",
-                )
-                db.add(conversation)
-                db.commit()
-                db.refresh(conversation)
+                conversation = self._get_or_create_conversation(db, user_id, character_id, character)
                 conversation_id = conversation.id
 
             # 如果带图片，先调用豆包获取图片描述（失败会降级，不影响后续流程）
@@ -209,13 +243,16 @@ class ChatService:
                 # 调用真实 AI API
                 client = get_ai_client()
 
-                # 获取对话历史（含刚保存的这条用户消息）
+                # 获取对话历史：只取最近 HISTORY_WINDOW_SIZE 条（含刚保存的这条用户消息），
+                # 避免会话很长时把全部历史都塞给 AI 导致 token 爆炸
                 messages_db = (
                     db.query(Message)
                     .filter_by(conversation_id=conversation_id)
-                    .order_by(Message.created_at)
+                    .order_by(Message.created_at.desc())
+                    .limit(HISTORY_WINDOW_SIZE)
                     .all()
                 )
+                messages_db.reverse()  # 按 created_at 倒序取的最近 N 条，这里转回正序
 
                 # 构建消息列表：带图片的消息改写成"图片内容 + 用户文字"发给 AI
                 history_messages = [
@@ -293,16 +330,9 @@ class ChatService:
             if not character:
                 raise ValueError("角色不存在")
 
-            # 如果没有提供对话 ID，创建新对话
+            # 如果没有提供对话 ID，复用该用户与该角色最近的会话（没有就新建）
             if conversation_id is None:
-                conversation = Conversation(
-                    user_id=user_id,
-                    character_id=character_id,
-                    title=f"与 {character.name} 的对话",
-                )
-                db.add(conversation)
-                db.commit()
-                db.refresh(conversation)
+                conversation = self._get_or_create_conversation(db, user_id, character_id, character)
                 conversation_id = conversation.id
 
             # 如果带图片，先调用豆包获取图片描述（失败会降级，不影响后续流程）
@@ -332,13 +362,15 @@ class ChatService:
                 # 调用真实 AI API
                 client = get_ai_client()
 
-                # 获取对话历史（含刚保存的这条用户消息）
+                # 获取对话历史：只取最近 HISTORY_WINDOW_SIZE 条（含刚保存的这条用户消息）
                 messages_db = (
                     db.query(Message)
                     .filter_by(conversation_id=conversation_id)
-                    .order_by(Message.created_at)
+                    .order_by(Message.created_at.desc())
+                    .limit(HISTORY_WINDOW_SIZE)
                     .all()
                 )
+                messages_db.reverse()  # 按 created_at 倒序取的最近 N 条，这里转回正序
 
                 # 构建消息列表：带图片的消息改写成"图片内容 + 用户文字"发给 AI
                 history_messages = [
