@@ -61,8 +61,10 @@ def _build_system_prompt(character, allow_emoji: bool) -> str:
     if example_prompt:
         system_prompt = f"{system_prompt}\n{example_prompt}"
 
+    # emoji 是否允许由前端"允许表情回复"开关控制（默认允许），
+    # 只有用户关闭时才在要求列表里追加"不要用 emoji"，不写死成任何情况下都禁止
     if not allow_emoji:
-        system_prompt += "\n请不要在回复中使用任何表情符号（emoji）。"
+        system_prompt += "\n8. 不要用 emoji，改用动作描写传达情绪。"
 
     return system_prompt
 

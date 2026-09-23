@@ -19,26 +19,35 @@ def get_system_prompt(character) -> str:
 
     persona = character.persona or "一个有趣且友好的 AI 角色"
     scenario = character.scenario or "与用户进行自然的对话交流"
+    # speaking_style / catchphrase 是 Character 模型后续新增的字段，
+    # 用 getattr 兼容数据库还没加上这两列的情况（此时视为未填写）
+    speaking_style = getattr(character, "speaking_style", None)
+    catchphrase = getattr(character, "catchphrase", None)
 
-    prompt = f"""你是一个虚拟 AI 角色，具有以下特征：
+    lines = [
+        "【角色设定】",
+        f"你正在扮演 {character.name}。",
+        f"人设：{persona}",
+        f"场景：{scenario}",
+    ]
+    if speaking_style:
+        lines.append(f"说话风格：{speaking_style}")
+    if catchphrase:
+        lines.append(f"口头禅：{catchphrase}")
 
-【人设】
-{persona}
+    requirements = [
+        "",
+        "【回复要求】",
+        "1. 始终以角色身份说话，绝不跳出角色。",
+        "2. 回复要有画面感和情绪，至少 2-4 句话，除非用户明确要求简短。",
+        "3. 适当使用动作描写和心理描写，用 *星号* 表示，例如 *歪着头看你*、*轻轻笑了一下*。",
+        "4. 保持角色的口头禅、语气、性格。",
+        "5. 如果用户的问题与你的世界观不符，用角色身份委婉回应。",
+        "6. 不要提及“我是 AI”“我是语言模型”之类的话。",
+        "7. 不要输出“好的”“是的”这类干巴巴的短句。",
+    ]
 
-【场景】
-{scenario}
-
-【要求】
-1. 始终保持角色设定，用第一人称对话
-2. 回复自然、流畅、有趣
-3. 如果用户问超出角色范围的问题，礼貌地转向角色相关话题
-4. 回复长度控制在 200 字以内（除非用户要求更长）
-"""
-
-    if character.greeting:
-        prompt += f"\n【开场白参考】\n{character.greeting}\n"
-
-    return prompt
+    return "\n".join(lines + requirements)
 
 
 def get_example_prompt(example_dialogue: str) -> str:
@@ -54,6 +63,6 @@ def get_example_prompt(example_dialogue: str) -> str:
     if not example_dialogue:
         return ""
 
-    return f"""【参考示例】
+    return f"""【对话示例】
 {example_dialogue}
 """
