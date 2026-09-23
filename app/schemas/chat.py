@@ -47,6 +47,20 @@ class ChatMessageInput(BaseModel):
     image_url: Optional[str] = Field(default=None, description="用户发送的图片地址，可选")
 
 
+class RegenerateRequest(BaseModel):
+    """重新生成回复的请求 Schema"""
+
+    conversation_id: int = Field(..., gt=0, description="要重新生成回复的会话 ID")
+    # 与 /send、/stream 保持一致，允许前端把当前"允许表情回复"开关状态传过来
+    allow_emoji: bool = Field(default=True, description="是否允许 AI 回复中包含表情符号，默认允许")
+
+
+class ClearHistoryResponse(BaseModel):
+    """清空聊天历史的响应 Schema"""
+
+    deleted: int = Field(..., description="本次删除的消息条数")
+
+
 class ChatSendResponse(BaseModel):
     """非流式聊天响应 Schema"""
 

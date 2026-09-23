@@ -6,9 +6,15 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from app.db.session import get_db
-from app.schemas.chat import ChatMessageInput, ChatSendResponse, MessageSchema
+from app.schemas.chat import (
+    ChatMessageInput,
+    ChatSendResponse,
+    MessageSchema,
+    RegenerateRequest,
+    ClearHistoryResponse,
+)
 from app.services.chat_service import ChatService
 from app.models import Character, Conversation, Message
 from app.api.deps import get_current_user
@@ -205,3 +211,123 @@ async def get_chat_history(
     except Exception as e:
         logger.error(f"Error fetching chat history: {e}")
         raise HTTPException(status_code=500, detail="获取聊天历史失败")
+
+
+@router.post(
+    "/regenerate",
+    tags=["聊天"],
+    response_model=ChatSendResponse,
+    summary="重新生成回复",
+    description="删除指定会话最后一条 assistant 回复，基于剩下的历史（含最后一条 user 消息）重新调用 AI 生成新回复，不会新增用户消息记录。",
+    responses={
+        200: {"description": "重新生成成功，返回新的 AI 回复"},
+        403: {"description": "该会话不属于当前登录用户"},
+        404: {"description": "会话不存在，或会话内没有可重新生成的回复"},
+        500: {"description": "服务器内部错误，重新生成回复失败"},
+    },
+)
+async def regenerate_message(
+    request: RegenerateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    重新生成会话最后一条 AI 回复
+
+    Args:
+        request: 包含 conversation_id（要重新生成的会话）和 allow_emoji 开关
+
+    Returns:
+        ChatSendResponse: 新的 AI 回复内容、角色 ID、会话 ID
+    """
+    # 先查一次会话是否存在，不存在直接 404，比进服务层再报错更直观
+    conversation = db.query(Conversation).filter_by(id=request.conversation_id).first()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    chat_service = ChatService()
+    try:
+        reply = await chat_service.regenerate(
+            conversation_id=request.conversation_id,
+            user_id=current_user.id,
+            allow_emoji=request.allow_emoji,
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error in regenerate_message: {e}")
+        raise HTTPException(status_code=500, detail="重新生成回复失败")
+
+    return ChatSendResponse(
+        reply=reply,
+        character_id=conversation.character_id,
+        conversation_id=conversation.id,
+    )
+
+
+@router.delete(
+    "/history",
+    tags=["聊天"],
+    response_model=ClearHistoryResponse,
+    summary="清空聊天历史",
+    description="删除指定会话（或当前登录用户与指定角色的会话）下的全部消息记录，但保留会话本身；用于前端“清空对话”按钮真正落盘生效，而不只是清空页面显示。",
+    responses={
+        200: {"description": "清空成功，返回删除的消息条数"},
+        400: {"description": "conversation_id 和 character_id 都未提供"},
+        403: {"description": "该会话不属于当前登录用户"},
+        404: {"description": "conversation_id 指定的会话不存在"},
+        500: {"description": "服务器内部错误，清空聊天历史失败"},
+    },
+)
+async def clear_chat_history(
+    conversation_id: Optional[int] = Query(default=None, gt=0, description="要清空的会话 ID"),
+    character_id: Optional[int] = Query(default=None, gt=0, description="按角色清空：清空当前登录用户与该角色的会话"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    清空聊天历史（删除消息记录，保留会话本身）
+
+    用户身份始终从登录令牌获取，不接受客户端传入 user_id，
+    避免出现"传别人的 character_id/conversation_id 清空别人历史"的越权问题
+
+    Args:
+        conversation_id: 要清空的会话 ID（与 character_id 二选一）
+        character_id: 角色 ID，清空当前用户与该角色的会话（与 conversation_id 二选一）
+
+    Returns:
+        ClearHistoryResponse: 本次删除的消息条数
+    """
+    if not conversation_id and not character_id:
+        raise HTTPException(status_code=400, detail="必须提供 conversation_id 或 character_id 其中之一")
+
+    if conversation_id:
+        conversation = db.query(Conversation).filter_by(id=conversation_id).first()
+        if not conversation:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        if conversation.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="无权操作该会话")
+    else:
+        conversation = (
+            db.query(Conversation)
+            .filter_by(user_id=current_user.id, character_id=character_id)
+            .order_by(Conversation.created_at.desc())
+            .first()
+        )
+        if not conversation:
+            # 当前用户与该角色还没有任何会话，视为已经是"空"的，直接返回 0
+            return ClearHistoryResponse(deleted=0)
+
+    try:
+        deleted = (
+            db.query(Message)
+            .filter_by(conversation_id=conversation.id)
+            .delete()
+        )
+        db.commit()
+        return ClearHistoryResponse(deleted=deleted)
+    except Exception as e:
+        logger.error(f"Error clearing chat history: {e}")
+        raise HTTPException(status_code=500, detail="清空聊天历史失败")

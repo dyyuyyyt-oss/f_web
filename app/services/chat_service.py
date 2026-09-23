@@ -407,6 +407,101 @@ class ChatService:
         finally:
             self.close_db()
 
+    async def regenerate(
+        self, conversation_id: int, user_id: int, allow_emoji: bool = True
+    ) -> str:
+        """
+        重新生成回复：删除该会话最后一条 assistant 消息，基于剩下的历史（含最后一条 user 消息）
+        重新调用 AI 生成新回复，不新增 user 消息记录，避免"重新生成"在历史里留下重复的用户消息
+
+        Args:
+            conversation_id: 会话 ID
+            user_id: 当前登录用户 ID，用于校验会话归属，防止跨用户重新生成
+            allow_emoji: 是否允许 AI 回复中包含表情符号（默认 True）
+
+        Returns:
+            新生成的 AI 回复文本
+
+        Raises:
+            ValueError: 会话不存在、角色不存在，或该会话没有可重新生成的回复
+            PermissionError: 该会话不属于当前登录用户
+        """
+        db = self.get_db()
+        try:
+            conversation = db.query(Conversation).filter_by(id=conversation_id).first()
+            if not conversation:
+                raise ValueError("会话不存在")
+            if conversation.user_id != user_id:
+                raise PermissionError("无权操作该会话")
+
+            character = db.query(Character).filter_by(id=conversation.character_id).first()
+            if not character:
+                raise ValueError("角色不存在")
+
+            # 只有当会话最后一条消息确实是 assistant 回复时才允许重新生成，
+            # 删除它之后，剩下的最后一条消息自然就是用来重新生成的那条 user 消息
+            last_message = (
+                db.query(Message)
+                .filter_by(conversation_id=conversation_id)
+                .order_by(Message.created_at.desc())
+                .first()
+            )
+            if not last_message or last_message.role != "assistant":
+                raise ValueError("当前会话没有可重新生成的回复")
+
+            db.delete(last_message)
+            db.commit()
+
+            if settings.use_mock_ai:
+                ai_response = (
+                    "你好！很高兴认识你。\n\n"
+                    "我是一个 AI 助手，很乐意与你进行对话。\n\n"
+                    "请问有什么我可以帮你的吗？"
+                )
+            else:
+                client = get_ai_client()
+
+                # 获取删除后剩下的历史（含最后一条 user 消息），逻辑与 chat()/stream_chat() 保持一致
+                messages_db = (
+                    db.query(Message)
+                    .filter_by(conversation_id=conversation_id)
+                    .order_by(Message.created_at.desc())
+                    .limit(HISTORY_WINDOW_SIZE)
+                    .all()
+                )
+                messages_db.reverse()
+
+                history_messages = [
+                    {
+                        "role": msg.role,
+                        "content": _build_message_content_for_ai(msg.content, msg.image_description),
+                    }
+                    for msg in messages_db
+                ]
+
+                system_prompt = _build_system_prompt(character, allow_emoji)
+                messages = [{"role": "system", "content": system_prompt}] + history_messages
+
+                ai_response = await client.chat(messages)
+
+            # 保存新的 AI 回复到数据库
+            ai_msg_db = Message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=ai_response,
+            )
+            db.add(ai_msg_db)
+            db.commit()
+
+            return ai_response
+        except (ValueError, PermissionError):
+            raise
+        except Exception as e:
+            logger.error(f"Error in regenerate: {e}")
+            raise
+        finally:
+            self.close_db()
+
     async def ensure_greeting(self, conversation_id: int, character) -> Optional[Message]:
         """
         确保这个会话有开场白：如果该会话还没有任何 assistant 消息，

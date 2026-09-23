@@ -3,7 +3,7 @@ import { fetchEventSource } from '@microsoft/fetch-event-source'
 import ReactMarkdown from 'react-markdown'
 import { useNavigate } from 'react-router-dom'
 import { getCharacters } from '../api/characters'
-import { getChatHistory } from '../api/chat'
+import { getChatHistory, regenerateReply, clearChatHistory } from '../api/chat'
 import { uploadChatImage } from '../api/upload'
 import { resolveApiUrl } from '../api/config'
 import { getToken } from '../api/http'
@@ -26,6 +26,8 @@ export default function ChatInterface() {
   const [characters, setCharacters] = useState([])
   const [selectedCharacterId, setSelectedCharacterId] = useState(null)
   const [messages, setMessages] = useState([])
+  const [conversationId, setConversationId] = useState(null) // 当前角色对应的会话 ID，重新生成/清空历史都要用到
+  const [clearError, setClearError] = useState('')
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -88,6 +90,7 @@ export default function ChatInterface() {
   useEffect(() => {
     if (!selectedCharacterId) {
       setMessages([])
+      setConversationId(null)
       return
     }
 
@@ -97,9 +100,12 @@ export default function ChatInterface() {
         setMessages(
           (data || []).map((m) => ({ role: m.role, content: m.content, image_url: m.image_url }))
         )
+        // 后端在会话为空时会自动新建会话并插入开场白，所以只要有历史消息，第一条就带着 conversation_id
+        setConversationId(data && data.length > 0 ? data[0].conversation_id : null)
       } catch (error) {
         console.error('Failed to fetch chat history:', error)
         setMessages([])
+        setConversationId(null)
       }
     }
 
@@ -210,15 +216,13 @@ export default function ChatInterface() {
     await streamAssistantReply(userMessage, imageUrl, aiMessageIndex)
   }
 
-  // 重新生成：把最后一条用户消息重新发送一次，替换当前（最后一条）AI 回复
+  // 重新生成：调用后端 /api/chat/regenerate，由后端删除最后一条 assistant 消息并重新生成，
+  // 不会像之前那样把用户消息重发一遍导致历史里出现重复的 user 消息
   const handleRegenerate = async () => {
-    if (isLoading || messages.length === 0) return
+    if (isLoading || messages.length === 0 || !conversationId) return
 
     const lastIndex = messages.length - 1
     if (messages[lastIndex].role !== 'assistant') return
-
-    const lastUserMessage = [...messages].slice(0, lastIndex).reverse().find((m) => m.role === 'user')
-    if (!lastUserMessage) return
 
     setIsLoading(true)
     setMessages((prev) => {
@@ -227,7 +231,23 @@ export default function ChatInterface() {
       return updated
     })
 
-    await streamAssistantReply(lastUserMessage.content, lastUserMessage.image_url, lastIndex)
+    try {
+      const result = await regenerateReply(conversationId, allowEmoji)
+      setMessages((prev) => {
+        const updated = [...prev]
+        updated[lastIndex] = { role: 'assistant', content: result.reply }
+        return updated
+      })
+    } catch (error) {
+      console.error('Regenerate error:', error)
+      setMessages((prev) => {
+        const updated = [...prev]
+        updated[lastIndex] = { role: 'assistant', content: '[错误] 重新生成失败，请重试' }
+        return updated
+      })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   // 处理回车发送
@@ -238,10 +258,22 @@ export default function ChatInterface() {
     }
   }
 
-  // 清空对话：只清空当前页面显示，不会删除后端已保存的历史消息，
-  // 所以切换角色再切回来、或刷新页面，之前的消息仍会重新加载出来
-  const handleClearMessages = () => {
-    setMessages([])
+  // 清空对话：调用后端真正删除该会话的消息记录（保留会话本身），
+  // 成功后再清空前端显示，这样刷新页面或切换角色再切回来都不会又加载出旧消息
+  const handleClearMessages = async () => {
+    if (!conversationId) {
+      setMessages([])
+      return
+    }
+
+    setClearError('')
+    try {
+      await clearChatHistory(conversationId)
+      setMessages([])
+    } catch (error) {
+      console.error('Clear history error:', error)
+      setClearError(error.message || '清空对话失败，请重试')
+    }
   }
 
   const selectedCharacter = characters.find((c) => c.id === selectedCharacterId)
@@ -318,6 +350,9 @@ export default function ChatInterface() {
           <p className="text-sm text-gray-500 mt-3">
             {selectedCharacter.description}
           </p>
+        )}
+        {clearError && (
+          <p className="text-sm text-red-600 mt-2">{clearError}</p>
         )}
       </div>
 
