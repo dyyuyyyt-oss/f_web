@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.db.session import init_db, close_db
 from app.models import Character, User, Conversation, Message
 from app.db.session import SessionLocal
-from app.api.routes import health, chat, characters, auth, admin
+from app.api.routes import health, chat, characters, auth, admin, image, upload
 from app.core.security import hash_password
 import logging
 from datetime import datetime
@@ -82,6 +82,8 @@ app = FastAPI(
         {"name": "角色", "description": "角色卡管理相关接口"},
         {"name": "认证", "description": "登录、注册申请相关接口"},
         {"name": "管理后台", "description": "账号管理与注册审核相关接口，仅管理员可访问"},
+        {"name": "图片识别", "description": "图片内容描述相关接口"},
+        {"name": "文件上传", "description": "通用文件上传相关接口"},
     ],
     lifespan=lifespan,
 )
@@ -106,12 +108,16 @@ app.include_router(chat.router, prefix=settings.api_prefix)
 app.include_router(characters.router, prefix=settings.api_prefix)
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(admin.router, prefix=settings.api_prefix)
+app.include_router(image.router, prefix=settings.api_prefix)
+app.include_router(upload.router, prefix=settings.api_prefix)
 
 
-# ==================== 静态文件（头像等上传文件）====================
-# StaticFiles 挂载时目录必须已存在，因此提前创建
+# ==================== 静态文件（头像、聊天图片等上传文件）====================
+# StaticFiles 挂载时目录必须已存在，因此提前创建（同时会创建父目录 uploads/）
 Path("uploads/avatars").mkdir(parents=True, exist_ok=True)
 app.mount(f"{settings.api_prefix}/uploads", StaticFiles(directory="uploads"), name="uploads")
+# 聊天图片直接存在 uploads/ 根目录下，额外挂载一个不带 /api 前缀的路径方便访问
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads_root")
 
 
 # ==================== 根路由 ====================

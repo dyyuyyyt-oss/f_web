@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     volcengine_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
     volcengine_model: Optional[str] = None  # 推理接入点 ID 或模型 ID
 
+    # -------- 豆包（图片理解）配置，通过火山引擎方舟调用 --------
+    doubao_api_key: Optional[str] = None  # 可与 volcengine_api_key 相同
+    doubao_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
+    doubao_model: Optional[str] = None  # 推理接入点 ID
+    image_describe_timeout: int = 60  # 图片描述单次请求超时时间（秒），可通过环境变量 IMAGE_DESCRIBE_TIMEOUT 覆盖
+
     # ==================== CORS 配置 ====================
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
     cors_allow_credentials: bool = True

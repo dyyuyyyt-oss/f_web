@@ -20,10 +20,12 @@ logger = logging.getLogger(__name__)
 
 @router.get("/stream", tags=["聊天"], summary="流式聊天", description="通过 SSE 返回 AI 流式回复，支持 DeepSeek 和火山引擎方舟")
 async def stream_chat(
-    message: str = Query(..., min_length=1, max_length=4096),
+    # 允许空字符串：用户可以只发图片不写文字，此时 image_url 必须非空
+    message: str = Query(..., max_length=4096),
     character_id: int = Query(default=1, gt=0),
     conversation_id: int = Query(default=None, gt=0),
     allow_emoji: bool = Query(default=True, description="是否允许 AI 回复中包含表情符号"),
+    image_url: str = Query(default=None, description="用户发送的图片地址，可选"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -36,6 +38,7 @@ async def stream_chat(
     - character_id: 角色 ID（默认为 1）
     - conversation_id: 对话 ID（可选，不提供则创建新对话）
     - allow_emoji: 是否允许 AI 回复中包含表情符号（默认 True）
+    - image_url: 用户发送的图片地址（可选）
 
     用户身份从登录令牌中获取，不再信任客户端传入的 user_id
 
@@ -59,6 +62,7 @@ async def stream_chat(
                 character_id=character_id,
                 user_id=current_user.id,
                 allow_emoji=allow_emoji,
+                image_url=image_url,
             ):
                 yield f"data: {chunk}\n\n"
 
@@ -110,6 +114,7 @@ async def send_message(
             character_id=request.character_id,
             user_id=current_user.id,
             allow_emoji=request.allow_emoji,
+            image_url=request.image_url,
         )
 
         # 获取最新创建的对话 ID（聊天服务已创建或返回现有会话）

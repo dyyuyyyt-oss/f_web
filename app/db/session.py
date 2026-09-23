@@ -66,6 +66,7 @@ def init_db() -> None:
     """
     Base.metadata.create_all(bind=engine)
     _ensure_user_auth_columns()
+    _ensure_message_image_columns()
 
 
 def _ensure_user_auth_columns() -> None:
@@ -88,6 +89,23 @@ def _ensure_user_auth_columns() -> None:
             conn.execute(
                 text('ALTER TABLE "user" ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT \'user\'')
             )
+
+
+def _ensure_message_image_columns() -> None:
+    """
+    给已存在的 message 表补上图片消息需要的新列（image_url、image_description）
+    原理同 _ensure_user_auth_columns()，全程幂等
+    """
+    inspector = inspect(engine)
+    if "message" not in inspector.get_table_names():
+        return
+
+    existing_columns = {col["name"] for col in inspector.get_columns("message")}
+    with engine.begin() as conn:
+        if "image_url" not in existing_columns:
+            conn.execute(text("ALTER TABLE message ADD COLUMN image_url VARCHAR(500)"))
+        if "image_description" not in existing_columns:
+            conn.execute(text("ALTER TABLE message ADD COLUMN image_description TEXT"))
 
 
 def get_db() -> Generator[Session, None, None]:

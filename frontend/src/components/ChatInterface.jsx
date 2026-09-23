@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { useNavigate } from 'react-router-dom'
 import { getCharacters } from '../api/characters'
+import { uploadChatImage } from '../api/upload'
 import { resolveApiUrl } from '../api/config'
 import { getToken } from '../api/http'
 import { useAuth } from '../context/AuthContext'
@@ -17,9 +18,35 @@ export default function ChatInterface() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isEditAvatarModalOpen, setIsEditAvatarModalOpen] = useState(false)
   const [allowEmoji, setAllowEmoji] = useState(true)
+  const [pendingImage, setPendingImage] = useState(null) // { url } 已上传成功、待随消息一起发送的图片
+  const [isUploadingImage, setIsUploadingImage] = useState(false)
+  const [imageUploadError, setImageUploadError] = useState('')
   const messagesEndRef = useRef(null)
+  const fileInputRef = useRef(null)
   const navigate = useNavigate()
   const { logout } = useAuth()
+
+  // 选择图片后立即上传
+  const handleImageSelect = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // 清空以允许重复选择同一文件
+    if (!file) return
+
+    setImageUploadError('')
+    setIsUploadingImage(true)
+    try {
+      const { url } = await uploadChatImage(file)
+      setPendingImage({ url })
+    } catch (err) {
+      setImageUploadError(err.message || '上传图片失败')
+    } finally {
+      setIsUploadingImage(false)
+    }
+  }
+
+  const handleRemovePendingImage = () => {
+    setPendingImage(null)
+  }
 
   const handleLogout = () => {
     logout()
@@ -70,13 +97,18 @@ export default function ChatInterface() {
 
   // 处理发送消息（流式）
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || !selectedCharacterId || isLoading) return
+    // 至少要有文字或图片其中之一
+    if ((!inputValue.trim() && !pendingImage) || !selectedCharacterId || isLoading) return
 
     const userMessage = inputValue
+    // 图片地址要转成绝对 URL 再传给后端：后端会把它转发给豆包识别，
+    // 豆包在火山引擎那边运行，无法访问 /uploads/xxx.jpg 这种相对路径
+    const imageUrl = pendingImage ? resolveApiUrl(pendingImage.url) : null
     setInputValue('')
-    
-    // 添加用户消息
-    setMessages((prev) => [...prev, { role: 'user', content: userMessage }])
+    setPendingImage(null)
+
+    // 添加用户消息（带图片时一并展示缩略图）
+    setMessages((prev) => [...prev, { role: 'user', content: userMessage, image_url: imageUrl }])
     setIsLoading(true)
 
     // 占位符用于 AI 消息
@@ -86,10 +118,12 @@ export default function ChatInterface() {
     try {
       let aiResponse = ''
 
+      const streamUrl =
+        `/api/chat/stream?message=${encodeURIComponent(userMessage)}&character_id=${selectedCharacterId}&allow_emoji=${allowEmoji}` +
+        (imageUrl ? `&image_url=${encodeURIComponent(imageUrl)}` : '')
+
       await fetchEventSource(
-        resolveApiUrl(
-          `/api/chat/stream?message=${encodeURIComponent(userMessage)}&character_id=${selectedCharacterId}&allow_emoji=${allowEmoji}`
-        ),
+        resolveApiUrl(streamUrl),
         {
           method: 'GET',
           headers: {
@@ -250,9 +284,24 @@ export default function ChatInterface() {
                     : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'
                 }`}
               >
-                <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-                  {msg.content || '正在输入...'}
-                </p>
+                {msg.image_url && (
+                  <img
+                    src={msg.image_url}
+                    alt="用户发送的图片"
+                    className="max-w-full rounded-lg mb-2"
+                  />
+                )}
+                {msg.content ? (
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                    {msg.content}
+                  </p>
+                ) : (
+                  msg.role === 'assistant' && (
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                      正在输入...
+                    </p>
+                  )
+                )}
               </div>
             </div>
           ))
@@ -262,7 +311,52 @@ export default function ChatInterface() {
 
       {/* 输入框 */}
       <div className="bg-white border-t border-gray-200 px-6 py-4 shadow-lg">
+        {/* 待发送的图片预览 */}
+        {(pendingImage || isUploadingImage) && (
+          <div className="mb-2">
+            {isUploadingImage ? (
+              <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-400">
+                上传中...
+              </div>
+            ) : (
+              <div className="relative w-16 h-16">
+                <img
+                  src={resolveApiUrl(pendingImage.url)}
+                  alt="待发送图片"
+                  className="w-16 h-16 rounded-lg object-cover border border-gray-200"
+                />
+                <button
+                  onClick={handleRemovePendingImage}
+                  className="absolute -top-2 -right-2 w-5 h-5 bg-gray-700 text-white rounded-full text-xs flex items-center justify-center hover:bg-gray-900"
+                  aria-label="移除图片"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+        {imageUploadError && (
+          <p className="text-xs text-red-600 mb-2">{imageUploadError}</p>
+        )}
+
         <div className="flex gap-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            onChange={handleImageSelect}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isLoading || isUploadingImage || !selectedCharacterId}
+            className="px-3 py-3 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed self-end"
+            aria-label="添加图片"
+          >
+            🖼️
+          </button>
           <textarea
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
@@ -274,7 +368,7 @@ export default function ChatInterface() {
           />
           <button
             onClick={handleSendMessage}
-            disabled={isLoading || !selectedCharacterId || !inputValue.trim()}
+            disabled={isLoading || !selectedCharacterId || (!inputValue.trim() && !pendingImage)}
             className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold flex items-center gap-2 self-end"
           >
             {isLoading ? (
@@ -291,7 +385,7 @@ export default function ChatInterface() {
           </button>
         </div>
         <p className="text-xs text-gray-500 mt-2">
-          💡 提示：支持 Shift+Enter 换行，单独 Enter 发送消息
+          💡 提示：支持 Shift+Enter 换行，单独 Enter 发送消息；点击 🖼️ 可附带一张图片
         </p>
       </div>
 
