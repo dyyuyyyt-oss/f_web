@@ -373,6 +373,42 @@ class ChatService:
         finally:
             self.close_db()
 
+    async def ensure_greeting(self, conversation_id: int, character) -> Optional[Message]:
+        """
+        确保这个会话有开场白：如果该会话还没有任何 assistant 消息，
+        把角色的 greeting 作为第一条 assistant 消息写入数据库
+        （参考星野：用户一进入对话就能看到角色主动说话）
+
+        Args:
+            conversation_id: 会话 ID
+            character: Character 模型实例
+
+        Returns:
+            新插入的开场白 Message；如果会话已经有 assistant 消息了，返回 None（不重复插入）
+        """
+        db = self.get_db()
+
+        existing_assistant_msg = (
+            db.query(Message)
+            .filter_by(conversation_id=conversation_id, role="assistant")
+            .first()
+        )
+        if existing_assistant_msg:
+            return None
+
+        # 角色没填开场白时，生成一句通用的默认开场白
+        greeting_text = character.greeting or f"（微笑）你好，我是{character.name}，有什么想聊的吗？"
+
+        greeting_msg = Message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=greeting_text,
+        )
+        db.add(greeting_msg)
+        db.commit()
+        db.refresh(greeting_msg)
+        return greeting_msg
+
     async def get_conversation_history(
         self, conversation_id: int
     ) -> list[dict[str, str]]:
