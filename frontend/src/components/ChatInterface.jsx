@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
+import ReactMarkdown from 'react-markdown'
 import { useNavigate } from 'react-router-dom'
 import { getCharacters } from '../api/characters'
 import { uploadChatImage } from '../api/upload'
@@ -8,6 +9,17 @@ import { getToken } from '../api/http'
 import { useAuth } from '../context/AuthContext'
 import CreateCharacterModal from './CreateCharacterModal'
 import EditAvatarModal from './EditAvatarModal'
+
+// AI 消息的 Markdown 渲染样式：*星号* 包裹的动作/心理描写渲染成灰色斜体，增强沉浸感
+const markdownComponents = {
+  p: ({ children }) => (
+    <p className="text-sm leading-relaxed whitespace-pre-wrap break-words mb-2 last:mb-0">
+      {children}
+    </p>
+  ),
+  em: ({ children }) => <em className="text-gray-400 italic">{children}</em>,
+  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+}
 
 export default function ChatInterface() {
   const [characters, setCharacters] = useState([])
@@ -95,26 +107,8 @@ export default function ChatInterface() {
     scrollToBottom()
   }, [messages])
 
-  // 处理发送消息（流式）
-  const handleSendMessage = async () => {
-    // 至少要有文字或图片其中之一
-    if ((!inputValue.trim() && !pendingImage) || !selectedCharacterId || isLoading) return
-
-    const userMessage = inputValue
-    // 图片地址要转成绝对 URL 再传给后端：后端会把它转发给豆包识别，
-    // 豆包在火山引擎那边运行，无法访问 /uploads/xxx.jpg 这种相对路径
-    const imageUrl = pendingImage ? resolveApiUrl(pendingImage.url) : null
-    setInputValue('')
-    setPendingImage(null)
-
-    // 添加用户消息（带图片时一并展示缩略图）
-    setMessages((prev) => [...prev, { role: 'user', content: userMessage, image_url: imageUrl }])
-    setIsLoading(true)
-
-    // 占位符用于 AI 消息
-    const aiMessageIndex = messages.length + 1
-    setMessages((prev) => [...prev, { role: 'assistant', content: '' }])
-
+  // 请求 AI 流式回复，写入 messages[aiMessageIndex]（发送新消息和重新生成都复用这个逻辑）
+  const streamAssistantReply = async (userMessage, imageUrl, aiMessageIndex) => {
     try {
       let aiResponse = ''
 
@@ -168,6 +162,49 @@ export default function ChatInterface() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // 处理发送消息（流式）
+  const handleSendMessage = async () => {
+    // 至少要有文字或图片其中之一
+    if ((!inputValue.trim() && !pendingImage) || !selectedCharacterId || isLoading) return
+
+    const userMessage = inputValue
+    // 图片地址要转成绝对 URL 再传给后端：后端会把它转发给豆包识别，
+    // 豆包在火山引擎那边运行，无法访问 /uploads/xxx.jpg 这种相对路径
+    const imageUrl = pendingImage ? resolveApiUrl(pendingImage.url) : null
+    setInputValue('')
+    setPendingImage(null)
+
+    // 添加用户消息（带图片时一并展示缩略图）
+    setMessages((prev) => [...prev, { role: 'user', content: userMessage, image_url: imageUrl }])
+    setIsLoading(true)
+
+    // 占位符用于 AI 消息
+    const aiMessageIndex = messages.length + 1
+    setMessages((prev) => [...prev, { role: 'assistant', content: '' }])
+
+    await streamAssistantReply(userMessage, imageUrl, aiMessageIndex)
+  }
+
+  // 重新生成：把最后一条用户消息重新发送一次，替换当前（最后一条）AI 回复
+  const handleRegenerate = async () => {
+    if (isLoading || messages.length === 0) return
+
+    const lastIndex = messages.length - 1
+    if (messages[lastIndex].role !== 'assistant') return
+
+    const lastUserMessage = [...messages].slice(0, lastIndex).reverse().find((m) => m.role === 'user')
+    if (!lastUserMessage) return
+
+    setIsLoading(true)
+    setMessages((prev) => {
+      const updated = [...prev]
+      updated[lastIndex] = { role: 'assistant', content: '' }
+      return updated
+    })
+
+    await streamAssistantReply(lastUserMessage.content, lastUserMessage.image_url, lastIndex)
   }
 
   // 处理回车发送
@@ -292,15 +329,27 @@ export default function ChatInterface() {
                   />
                 )}
                 {msg.content ? (
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-                    {msg.content}
-                  </p>
+                  msg.role === 'assistant' ? (
+                    <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
+                  ) : (
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                      {msg.content}
+                    </p>
+                  )
                 ) : (
                   msg.role === 'assistant' && (
                     <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
                       正在输入...
                     </p>
                   )
+                )}
+                {msg.role === 'assistant' && idx === messages.length - 1 && msg.content && !isLoading && (
+                  <button
+                    onClick={handleRegenerate}
+                    className="mt-1 text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
+                  >
+                    🔄 重新生成
+                  </button>
                 )}
               </div>
             </div>
