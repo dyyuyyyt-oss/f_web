@@ -40,6 +40,27 @@ export default function ChatInterface() {
   const fileInputRef = useRef(null)
   const navigate = useNavigate()
   const { logout } = useAuth()
+  // 当前正在进行的 SSE 流式请求的 AbortController；切换角色或组件卸载时用它取消请求，
+  // 避免上一个角色未结束的流式回复混进新角色的消息列表
+  const streamControllerRef = useRef(null)
+  // 始终指向"当前选中角色"的最新值，供 regenerate/清空历史等异步回调在 await 之后判断
+  // 结果是否还对应着用户当前正在看的角色（避免异步返回时角色已经切换，写错了消息列表）
+  const activeCharacterIdRef = useRef(null)
+
+  // 中止当前正在进行的 SSE 流式请求（如果有）
+  const abortActiveStream = () => {
+    if (streamControllerRef.current) {
+      streamControllerRef.current.abort()
+      streamControllerRef.current = null
+    }
+  }
+
+  // 组件卸载时确保中止进行中的请求，避免卸载后还有 setState 调用
+  useEffect(() => {
+    return () => {
+      abortActiveStream()
+    }
+  }, [])
 
   // 选择图片后立即上传
   const handleImageSelect = async (e) => {
@@ -87,22 +108,37 @@ export default function ChatInterface() {
 
   // 进入某个角色的聊天页（首次选中、切换角色、刷新页面后重新选中）时拉取历史消息；
   // 会话为空时后端会自动插入开场白，这里直接渲染后端返回的结果即可
+  //
+  // 切换角色时必须按顺序完成以下步骤，否则会出现"卡在正在输入"或历史消息串到别的角色上：
+  // 1. 中止上一个角色可能还没结束的 SSE 流式请求
+  // 2. 把"正在输入"状态重置为 false（不然如果切换发生在上一个角色回复过程中，这个状态永远不会被重置）
+  // 3. 清空当前消息列表和 conversation_id，避免短暂展示上一个角色的内容
+  // 4. 重新拉取新角色的历史（为空时后端自动插入开场白）并写回 conversation_id
   useEffect(() => {
+    activeCharacterIdRef.current = selectedCharacterId
+
+    abortActiveStream()
+    setIsLoading(false)
+    setMessages([])
+    setConversationId(null)
+
     if (!selectedCharacterId) {
-      setMessages([])
-      setConversationId(null)
       return
     }
+
+    // 防止拉取历史的请求还没返回时角色又被切换：只有请求发起时的角色仍是当前角色，才应用结果
+    let cancelled = false
 
     const fetchHistory = async () => {
       try {
         const data = await getChatHistory(selectedCharacterId)
+        if (cancelled) return
         setMessages(
-          (data || []).map((m) => ({ role: m.role, content: m.content, image_url: m.image_url }))
+          (data.messages || []).map((m) => ({ role: m.role, content: m.content, image_url: m.image_url }))
         )
-        // 后端在会话为空时会自动新建会话并插入开场白，所以只要有历史消息，第一条就带着 conversation_id
-        setConversationId(data && data.length > 0 ? data[0].conversation_id : null)
+        setConversationId(data.conversation_id ?? null)
       } catch (error) {
+        if (cancelled) return
         console.error('Failed to fetch chat history:', error)
         setMessages([])
         setConversationId(null)
@@ -110,6 +146,10 @@ export default function ChatInterface() {
     }
 
     fetchHistory()
+
+    return () => {
+      cancelled = true
+    }
   }, [selectedCharacterId])
 
   // 新角色创建成功后，追加到列表并自动选中（上面的 useEffect 会随之拉取历史/开场白）
@@ -136,8 +176,13 @@ export default function ChatInterface() {
     scrollToBottom()
   }, [messages])
 
-  // 请求 AI 流式回复，写入 messages[aiMessageIndex]（发送新消息和重新生成都复用这个逻辑）
+  // 请求 AI 流式回复，写入 messages[aiMessageIndex]（发送新消息复用这个逻辑）
+  // 用 AbortController 支持中途取消：切换角色或组件卸载时会调用 abortActiveStream() 中止请求，
+  // 中止后不再触发任何 setState，避免把已经切走的角色的内容写进新角色的消息列表
   const streamAssistantReply = async (userMessage, imageUrl, aiMessageIndex) => {
+    const controller = new AbortController()
+    streamControllerRef.current = controller
+
     try {
       let aiResponse = ''
 
@@ -152,20 +197,25 @@ export default function ChatInterface() {
           headers: {
             Authorization: `Bearer ${getToken()}`,
           },
+          signal: controller.signal,
           onmessage(event) {
-            if (event.data) {
-              aiResponse += event.data
-              setMessages((prev) => {
-                const updated = [...prev]
-                updated[aiMessageIndex] = {
-                  role: 'assistant',
-                  content: aiResponse,
-                }
-                return updated
-              })
-            }
+            if (controller.signal.aborted || !event.data) return
+            aiResponse += event.data
+            setMessages((prev) => {
+              const updated = [...prev]
+              updated[aiMessageIndex] = {
+                role: 'assistant',
+                content: aiResponse,
+              }
+              return updated
+            })
           },
           onerror(err) {
+            // 主动 abort（切换角色/组件卸载）触发的错误直接抛出，交给外层 catch 静默处理，
+            // 不覆盖已经切换过去的新角色消息；抛出还能终止 fetchEventSource 默认的自动重连
+            if (controller.signal.aborted) {
+              throw err
+            }
             console.error('Stream error:', err)
             setMessages((prev) => {
               const updated = [...prev]
@@ -175,10 +225,16 @@ export default function ChatInterface() {
               }
               return updated
             })
+            // 不抛出的话 fetchEventSource 会一直自动重连，导致"正在输入"永远卡住，所以这里也要抛出终止重连
+            throw err
           },
         }
       )
     } catch (error) {
+      if (controller.signal.aborted) {
+        // 主动取消，不是真正的失败，不需要提示用户
+        return
+      }
       console.error('Send message error:', error)
       setMessages((prev) => {
         const updated = [...prev]
@@ -189,7 +245,12 @@ export default function ChatInterface() {
         return updated
       })
     } finally {
-      setIsLoading(false)
+      if (streamControllerRef.current === controller) {
+        streamControllerRef.current = null
+      }
+      if (!controller.signal.aborted) {
+        setIsLoading(false)
+      }
     }
   }
 
@@ -224,6 +285,9 @@ export default function ChatInterface() {
     const lastIndex = messages.length - 1
     if (messages[lastIndex].role !== 'assistant') return
 
+    // 记录发起请求时的角色，等请求返回后要核对用户是否还在看这个角色，防止结果写错消息列表
+    const requestCharacterId = selectedCharacterId
+
     setIsLoading(true)
     setMessages((prev) => {
       const updated = [...prev]
@@ -233,12 +297,14 @@ export default function ChatInterface() {
 
     try {
       const result = await regenerateReply(conversationId, allowEmoji)
+      if (activeCharacterIdRef.current !== requestCharacterId) return
       setMessages((prev) => {
         const updated = [...prev]
         updated[lastIndex] = { role: 'assistant', content: result.reply }
         return updated
       })
     } catch (error) {
+      if (activeCharacterIdRef.current !== requestCharacterId) return
       console.error('Regenerate error:', error)
       setMessages((prev) => {
         const updated = [...prev]
@@ -246,7 +312,9 @@ export default function ChatInterface() {
         return updated
       })
     } finally {
-      setIsLoading(false)
+      if (activeCharacterIdRef.current === requestCharacterId) {
+        setIsLoading(false)
+      }
     }
   }
 
@@ -266,11 +334,14 @@ export default function ChatInterface() {
       return
     }
 
+    const requestCharacterId = selectedCharacterId
     setClearError('')
     try {
       await clearChatHistory(conversationId)
+      if (activeCharacterIdRef.current !== requestCharacterId) return
       setMessages([])
     } catch (error) {
+      if (activeCharacterIdRef.current !== requestCharacterId) return
       console.error('Clear history error:', error)
       setClearError(error.message || '清空对话失败，请重试')
     }
@@ -299,10 +370,7 @@ export default function ChatInterface() {
           <label className="font-semibold text-gray-700">选择角色：</label>
           <select
             value={selectedCharacterId || ''}
-            onChange={(e) => {
-              setSelectedCharacterId(Number(e.target.value))
-              setMessages([])
-            }}
+            onChange={(e) => setSelectedCharacterId(Number(e.target.value))}
             className="flex-1 max-w-xs px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
           >
             {characters.map((char) => (

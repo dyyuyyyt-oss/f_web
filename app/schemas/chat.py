@@ -3,7 +3,7 @@
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import List, Optional
 from datetime import datetime
 
 
@@ -59,6 +59,13 @@ class ClearHistoryResponse(BaseModel):
     """清空聊天历史的响应 Schema"""
 
     deleted: int = Field(..., description="本次删除的消息条数")
+
+
+class ChatHistoryResponse(BaseModel):
+    """获取聊天历史的响应 Schema"""
+
+    conversation_id: int = Field(..., description="当前用户与该角色对应的会话 ID")
+    messages: List[MessageSchema] = Field(..., description="按时间正序排列的历史消息列表")
 
 
 class ChatSendResponse(BaseModel):

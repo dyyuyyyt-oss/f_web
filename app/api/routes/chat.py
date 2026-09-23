@@ -6,14 +6,14 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import Optional
 from app.db.session import get_db
 from app.schemas.chat import (
     ChatMessageInput,
     ChatSendResponse,
-    MessageSchema,
     RegenerateRequest,
     ClearHistoryResponse,
+    ChatHistoryResponse,
 )
 from app.services.chat_service import ChatService
 from app.models import Character, Conversation, Message
@@ -160,11 +160,11 @@ async def send_message(
 @router.get(
     "/history",
     tags=["聊天"],
-    response_model=List[MessageSchema],
+    response_model=ChatHistoryResponse,
     summary="获取聊天历史",
-    description="返回当前登录用户与指定角色的历史消息（按时间正序）；如果还没有任何消息，会自动插入角色开场白作为第一条消息。",
+    description="返回当前登录用户与指定角色对应的会话 ID，以及历史消息（按时间正序）；如果还没有任何消息，会自动插入角色开场白作为第一条消息。",
     responses={
-        200: {"description": "返回历史消息列表"},
+        200: {"description": "返回会话 ID 和历史消息列表"},
         404: {"description": "角色不存在"},
         500: {"description": "服务器内部错误，获取聊天历史失败"},
     },
@@ -178,11 +178,14 @@ async def get_chat_history(
     获取当前登录用户与指定角色的聊天历史
     用户与角色的多轮对话都累积在同一个会话里，还没有会话时会自动新建并插入开场白
 
+    响应体带上 conversation_id，前端切换角色后可以直接拿它去调用 regenerate / 清空历史等接口，
+    不用再从 messages 数组里"猜"第一条消息的 conversation_id（消息列表为空时也无从猜起）
+
     Args:
         character_id: 角色 ID
 
     Returns:
-        按时间正序排列的历史消息列表
+        ChatHistoryResponse: 会话 ID + 按时间正序排列的历史消息列表
     """
     try:
         character = db.query(Character).filter_by(id=character_id).first()
@@ -205,7 +208,7 @@ async def get_chat_history(
             .order_by(Message.created_at)
             .all()
         )
-        return messages
+        return ChatHistoryResponse(conversation_id=conversation.id, messages=messages)
     except HTTPException:
         raise
     except Exception as e:
