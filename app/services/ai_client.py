@@ -80,8 +80,11 @@ class AIClient:
     async def stream_chat(
         self,
         messages: list[dict[str, str]],
-        temperature: float = 0.7,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        frequency_penalty: Optional[float] = None,
+        presence_penalty: Optional[float] = None,
     ) -> AsyncGenerator[str, None]:
         """
         流式聊天接口
@@ -89,12 +92,22 @@ class AIClient:
 
         Args:
             messages: 消息列表，每条消息格式为 {"role": "user"|"assistant", "content": "..."}
-            temperature: 温度参数（0-2），控制回复的随机性
-            max_tokens: 最大令牌数
+            temperature: 温度参数（0-2），控制回复的随机性；为 None 时用 settings.chat_temperature
+            top_p: 核采样阈值；为 None 时用 settings.chat_top_p
+            max_tokens: 最大令牌数；为 None 时用 settings.chat_max_tokens
+            frequency_penalty: 频率惩罚；为 None 时用 settings.chat_frequency_penalty
+            presence_penalty: 存在惩罚；为 None 时用 settings.chat_presence_penalty
 
         Yields:
             AI 回复的文本段落
         """
+        # 未显式传参时，统一从 config 读取可配置的默认值，不再硬编码
+        temperature = settings.chat_temperature if temperature is None else temperature
+        top_p = settings.chat_top_p if top_p is None else top_p
+        max_tokens = settings.chat_max_tokens if max_tokens is None else max_tokens
+        frequency_penalty = settings.chat_frequency_penalty if frequency_penalty is None else frequency_penalty
+        presence_penalty = settings.chat_presence_penalty if presence_penalty is None else presence_penalty
+
         try:
             logger.info(
                 f"Starting stream chat with provider={self.provider}, model={self.model}"
@@ -106,7 +119,10 @@ class AIClient:
                 messages=messages,
                 stream=True,
                 temperature=temperature,
-                max_tokens=max_tokens or 2000,
+                top_p=top_p,
+                max_tokens=max_tokens,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
             )
 
             # 异步流式返回每个 chunk
@@ -130,8 +146,11 @@ class AIClient:
     async def chat(
         self,
         messages: list[dict[str, str]],
-        temperature: float = 0.7,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        frequency_penalty: Optional[float] = None,
+        presence_penalty: Optional[float] = None,
     ) -> str:
         """
         非流式聊天接口
@@ -139,12 +158,22 @@ class AIClient:
 
         Args:
             messages: 消息列表
-            temperature: 温度参数
-            max_tokens: 最大令牌数
+            temperature: 温度参数；为 None 时用 settings.chat_temperature
+            top_p: 核采样阈值；为 None 时用 settings.chat_top_p
+            max_tokens: 最大令牌数；为 None 时用 settings.chat_max_tokens
+            frequency_penalty: 频率惩罚；为 None 时用 settings.chat_frequency_penalty
+            presence_penalty: 存在惩罚；为 None 时用 settings.chat_presence_penalty
 
         Returns:
             AI 的完整回复文本
         """
+        # 未显式传参时，统一从 config 读取可配置的默认值，不再硬编码
+        temperature = settings.chat_temperature if temperature is None else temperature
+        top_p = settings.chat_top_p if top_p is None else top_p
+        max_tokens = settings.chat_max_tokens if max_tokens is None else max_tokens
+        frequency_penalty = settings.chat_frequency_penalty if frequency_penalty is None else frequency_penalty
+        presence_penalty = settings.chat_presence_penalty if presence_penalty is None else presence_penalty
+
         try:
             logger.info(f"Starting chat with provider={self.provider}, model={self.model}")
 
@@ -152,7 +181,10 @@ class AIClient:
                 model=self.model,
                 messages=messages,
                 temperature=temperature,
-                max_tokens=max_tokens or 2000,
+                top_p=top_p,
+                max_tokens=max_tokens,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
             )
 
             return response.choices[0].message.content or ""

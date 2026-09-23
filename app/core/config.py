@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     # ==================== 流式响应缓冲 ====================
     stream_buffer_size: int = 10  # 单位：字符数
 
+    # ==================== 对话模型参数 ====================
+    # 默认值偏高，是为了让角色扮演的回复更有多样性、更少重复用语；均可通过环境变量覆盖
+    chat_temperature: float = 0.9  # 温度：越高回复越有随机性/创造力
+    chat_top_p: float = 0.95  # 核采样阈值
+    chat_max_tokens: int = 1024  # 单次回复最大 token 数，避免长回复被截断
+    chat_frequency_penalty: float = 0.3  # 频率惩罚：越高越不容易重复用词
+    chat_presence_penalty: float = 0.3  # 存在惩罚：越高越倾向引入新话题/新表达
+
     class Config:
         """Pydantic 配置"""
         env_file = ".env"
