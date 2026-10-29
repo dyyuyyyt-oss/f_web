@@ -22,11 +22,12 @@ export async function getChatHistory(characterId) {
  * @param {boolean} allowEmoji 是否允许 AI 回复中包含表情符号
  * @returns {Promise<{reply: string, character_id: number, conversation_id: number}>}
  */
-export async function regenerateReply(conversationId, allowEmoji = true) {
+export async function regenerateReply(conversationId, allowEmoji = true, thinking = false) {
   const response = await authFetch('/api/chat/regenerate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ conversation_id: conversationId, allow_emoji: allowEmoji }),
+    // thinking：「思考」开关状态，和流式接口的 thinking 参数保持一致（后端当前还没有读取它）
+    body: JSON.stringify({ conversation_id: conversationId, allow_emoji: allowEmoji, thinking }),
   })
   if (!response.ok) {
     throw new Error(await extractErrorMessage(response, '重新生成回复失败'))

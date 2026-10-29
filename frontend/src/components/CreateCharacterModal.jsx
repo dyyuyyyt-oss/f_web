@@ -59,15 +59,15 @@ export default function CreateCharacterModal({ character = null, onClose, onSave
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-800">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">
+      <div className="bg-desk-panel border border-desk-divider rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto font-desk">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-desk-divider bg-desk-header rounded-t-2xl">
+          <h2 className="text-[17px] font-bold text-white">
             {isEditing ? '✏️ 编辑角色' : '✨ 创建角色'}
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+            className="text-desk-text-dim hover:text-desk-text text-xl leading-none"
             aria-label="关闭"
           >
             ×
@@ -76,20 +76,20 @@ export default function CreateCharacterModal({ character = null, onClose, onSave
 
         <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              角色名称 <span className="text-red-500">*</span>
+            <label className="block text-sm font-medium text-desk-text-dim mb-1">
+              角色名称 <span className="text-desk-accent">*</span>
             </label>
             <input
               type="text"
               value={form.name}
               onChange={handleChange('name')}
               placeholder="例如：星野🌟"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+              className="w-full px-3 py-2 rounded-xl border border-transparent bg-desk-control text-desk-text placeholder:text-desk-text-faint focus:border-desk-accent outline-none text-sm"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">头像</label>
+            <label className="block text-sm font-medium text-desk-text-dim mb-1">头像</label>
             <AvatarPicker
               previewUrl={form.avatar}
               onUploaded={(url) => setForm((prev) => ({ ...prev, avatar: url }))}
@@ -97,78 +97,78 @@ export default function CreateCharacterModal({ character = null, onClose, onSave
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              人设描述 <span className="text-red-500">*</span>
+            <label className="block text-sm font-medium text-desk-text-dim mb-1">
+              人设描述 <span className="text-desk-accent">*</span>
             </label>
             <textarea
               value={form.persona}
               onChange={handleChange('persona')}
               placeholder="描述角色的性格、说话风格等"
               rows="3"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm resize-none"
+              className="w-full px-3 py-2 rounded-xl border border-transparent bg-desk-control text-desk-text placeholder:text-desk-text-faint focus:border-desk-accent outline-none text-sm resize-none"
             />
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-xs text-desk-text-faint mt-1">
               越详细，AI 回复越贴近角色。建议描述性格、背景故事、说话习惯。
             </p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">说话风格</label>
+            <label className="block text-sm font-medium text-desk-text-dim mb-1">说话风格</label>
             <input
               type="text"
               value={form.speaking_style}
               onChange={handleChange('speaking_style')}
               placeholder="例如：温柔、爱撒娇、说话简短有力"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+              className="w-full px-3 py-2 rounded-xl border border-transparent bg-desk-control text-desk-text placeholder:text-desk-text-faint focus:border-desk-accent outline-none text-sm"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">口头禅</label>
+            <label className="block text-sm font-medium text-desk-text-dim mb-1">口头禅</label>
             <input
               type="text"
               value={form.catchphrase}
               onChange={handleChange('catchphrase')}
               placeholder="例如：哼、才不是呢、喵~"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+              className="w-full px-3 py-2 rounded-xl border border-transparent bg-desk-control text-desk-text placeholder:text-desk-text-faint focus:border-desk-accent outline-none text-sm"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">欢迎语</label>
+            <label className="block text-sm font-medium text-desk-text-dim mb-1">欢迎语</label>
             <textarea
               value={form.greeting}
               onChange={handleChange('greeting')}
               placeholder="角色对用户说的第一句话"
               rows="2"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm resize-none"
+              className="w-full px-3 py-2 rounded-xl border border-transparent bg-desk-control text-desk-text placeholder:text-desk-text-faint focus:border-desk-accent outline-none text-sm resize-none"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">场景设定</label>
+            <label className="block text-sm font-medium text-desk-text-dim mb-1">场景设定</label>
             <textarea
               value={form.scenario}
               onChange={handleChange('scenario')}
               placeholder="对话发生的场景背景"
               rows="2"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm resize-none"
+              className="w-full px-3 py-2 rounded-xl border border-transparent bg-desk-control text-desk-text placeholder:text-desk-text-faint focus:border-desk-accent outline-none text-sm resize-none"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">示例对话</label>
+            <label className="block text-sm font-medium text-desk-text-dim mb-1">示例对话</label>
             <textarea
               value={form.example_dialogue}
               onChange={handleChange('example_dialogue')}
               placeholder="给出一段示例对话，帮助 AI 理解角色风格"
               rows="3"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm resize-none"
+              className="w-full px-3 py-2 rounded-xl border border-transparent bg-desk-control text-desk-text placeholder:text-desk-text-faint focus:border-desk-accent outline-none text-sm resize-none"
             />
           </div>
 
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            <p className="text-sm text-desk-accent bg-desk-accent/10 border border-desk-accent/30 rounded-xl px-3 py-2">
               {error}
             </p>
           )}
@@ -177,14 +177,14 @@ export default function CreateCharacterModal({ character = null, onClose, onSave
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+              className="flex-1 h-10 px-4 rounded-btn bg-desk-control text-desk-text hover:bg-desk-control-hover transition-colors text-sm font-semibold"
             >
               取消
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium"
+              className="flex-1 h-10 px-4 rounded-btn bg-desk-green text-desk-on-green font-bold hover:bg-desk-green-hover transition-colors disabled:bg-desk-control disabled:text-desk-text-faint disabled:cursor-not-allowed text-sm"
             >
               {isSubmitting ? (isEditing ? '保存中...' : '创建中...') : isEditing ? '保存修改' : '创建角色'}
             </button>

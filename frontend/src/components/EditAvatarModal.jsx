@@ -30,13 +30,13 @@ export default function EditAvatarModal({ character, onClose, onUpdated }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-800">更换头像 · {character.name}</h2>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">
+      <div className="bg-desk-panel border border-desk-divider rounded-2xl shadow-2xl w-full max-w-sm font-desk">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-desk-divider bg-desk-header rounded-t-2xl">
+          <h2 className="text-[17px] font-bold text-white">更换头像 · {character.name}</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+            className="text-desk-text-dim hover:text-desk-text text-xl leading-none"
             aria-label="关闭"
           >
             ×
@@ -47,7 +47,7 @@ export default function EditAvatarModal({ character, onClose, onUpdated }) {
           <AvatarPicker previewUrl={avatar} onUploaded={setAvatar} />
 
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            <p className="text-sm text-desk-accent bg-desk-accent/10 border border-desk-accent/30 rounded-xl px-3 py-2">
               {error}
             </p>
           )}
@@ -56,7 +56,7 @@ export default function EditAvatarModal({ character, onClose, onUpdated }) {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+              className="flex-1 h-10 px-4 rounded-btn bg-desk-control text-desk-text hover:bg-desk-control-hover transition-colors text-sm font-semibold"
             >
               取消
             </button>
@@ -64,7 +64,7 @@ export default function EditAvatarModal({ character, onClose, onUpdated }) {
               type="button"
               onClick={handleSave}
               disabled={isSaving || !avatar || avatar === character.avatar}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium"
+              className="flex-1 h-10 px-4 rounded-btn bg-desk-green text-desk-on-green font-bold hover:bg-desk-green-hover transition-colors disabled:bg-desk-control disabled:text-desk-text-faint disabled:cursor-not-allowed text-sm"
             >
               {isSaving ? '保存中...' : '保存'}
             </button>

@@ -26,7 +26,7 @@ export default function AvatarPicker({ previewUrl, onUploaded }) {
 
   return (
     <div className="flex items-center gap-3">
-      <div className="w-16 h-16 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center border border-gray-200 shrink-0">
+      <div className="w-16 h-16 rounded-full bg-desk-control overflow-hidden flex items-center justify-center ring-1 ring-desk-divider shrink-0">
         {previewUrl ? (
           <img src={resolveApiUrl(previewUrl)} alt="头像预览" className="w-full h-full object-cover" />
         ) : (
@@ -34,7 +34,7 @@ export default function AvatarPicker({ previewUrl, onUploaded }) {
         )}
       </div>
       <div>
-        <label className="inline-block px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors cursor-pointer">
+        <label className="inline-block px-3 py-1.5 text-sm bg-desk-control text-desk-text rounded-btn hover:bg-desk-control-hover transition-colors cursor-pointer">
           {isUploading ? '上传中...' : '从电脑选择图片'}
           <input
             type="file"
@@ -44,7 +44,7 @@ export default function AvatarPicker({ previewUrl, onUploaded }) {
             className="hidden"
           />
         </label>
-        {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+        {error && <p className="text-xs text-desk-accent mt-1">{error}</p>}
       </div>
     </div>
   )

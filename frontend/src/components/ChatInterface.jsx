@@ -7,7 +7,12 @@ import { uploadChatImage } from '../api/upload'
 import { resolveApiUrl } from '../api/config'
 import { getToken } from '../api/http'
 import { useAuth } from '../context/AuthContext'
+import { buildChatMarkdown, chatExportFileName, downloadTextFile } from '../utils/chatFormat'
 import ChatView from './ChatView'
+
+// 宽屏（≥768px）默认展开角色栏，窄屏默认收起
+const WIDE_SCREEN_QUERY = '(min-width: 768px)'
+const isWideScreen = () => typeof window !== 'undefined' && window.matchMedia?.(WIDE_SCREEN_QUERY).matches
 
 // 聊天界面的状态与请求：角色列表、历史、SSE 流式回复、重新生成、清空、图片上传、表情开关。
 // 界面长什么样全部在 ChatView 里，这里不写任何样式，改界面不需要碰这个文件
@@ -27,6 +32,14 @@ export default function ChatInterface() {
   const [pendingImage, setPendingImage] = useState(null) // { url } 已上传成功、待随消息一起发送的图片
   const [isUploadingImage, setIsUploadingImage] = useState(false)
   const [imageUploadError, setImageUploadError] = useState('')
+  // 「思考」开关：随流式 / 重新生成请求带上 thinking 参数（后端当前还没有读取这个参数）
+  const [thinking, setThinking] = useState(false)
+  // 是否正在接收 SSE 流：只有这时「停止」可点（重新生成走的是普通请求，不能中途停止）
+  const [isStreaming, setIsStreaming] = useState(false)
+  // 上一条回复的耗时统计，显示在底部状态栏：{ firstTokenMs, totalMs, chars, stopped }
+  const [lastStats, setLastStats] = useState(null)
+  // 角色栏展开 / 收起（纯界面状态）
+  const [isSidebarOpen, setIsSidebarOpen] = useState(isWideScreen)
   const messagesEndRef = useRef(null)
   const fileInputRef = useRef(null)
   const navigate = useNavigate()
@@ -37,6 +50,8 @@ export default function ChatInterface() {
   // 始终指向"当前选中角色"的最新值，供 regenerate/清空历史等异步回调在 await 之后判断
   // 结果是否还对应着用户当前正在看的角色（避免异步返回时角色已经切换，写错了消息列表）
   const activeCharacterIdRef = useRef(null)
+  // 用户点「停止」时记下被停止的那个流，流结束时据此区分"用户停止"和"切换角色导致的中止"
+  const userStoppedControllerRef = useRef(null)
 
   // 中止当前正在进行的 SSE 流式请求（如果有）
   const abortActiveStream = () => {
@@ -125,7 +140,7 @@ export default function ChatInterface() {
         const data = await getChatHistory(selectedCharacterId)
         if (cancelled) return
         setMessages(
-          (data.messages || []).map((m) => ({ role: m.role, content: m.content, image_url: m.image_url }))
+          (data.messages || []).map((m) => ({ role: m.role, content: m.content, image_url: m.image_url, created_at: m.created_at }))
         )
         setConversationId(data.conversation_id ?? null)
       } catch (error) {
@@ -203,12 +218,17 @@ export default function ChatInterface() {
   const streamAssistantReply = async (userMessage, imageUrl, aiMessageIndex) => {
     const controller = new AbortController()
     streamControllerRef.current = controller
+    setIsStreaming(true)
+
+    // 耗时统计：从发出请求开始计时，记录收到第一段内容的时间
+    const startedAt = performance.now()
+    let firstTokenAt = null
+    let aiResponse = ''
 
     try {
-      let aiResponse = ''
-
       const streamUrl =
         `/api/chat/stream?message=${encodeURIComponent(userMessage)}&character_id=${selectedCharacterId}&allow_emoji=${allowEmoji}` +
+        `&thinking=${thinking}` +
         (imageUrl ? `&image_url=${encodeURIComponent(imageUrl)}` : '')
 
       await fetchEventSource(
@@ -221,10 +241,12 @@ export default function ChatInterface() {
           signal: controller.signal,
           onmessage(event) {
             if (controller.signal.aborted || !event.data) return
+            if (firstTokenAt === null) firstTokenAt = performance.now()
             aiResponse += event.data
             setMessages((prev) => {
               const updated = [...prev]
               updated[aiMessageIndex] = {
+                ...updated[aiMessageIndex],
                 role: 'assistant',
                 content: aiResponse,
               }
@@ -241,6 +263,7 @@ export default function ChatInterface() {
             setMessages((prev) => {
               const updated = [...prev]
               updated[aiMessageIndex] = {
+                ...updated[aiMessageIndex],
                 role: 'assistant',
                 content: '[错误] 无法获取 AI 回复，请重试',
               }
@@ -260,6 +283,7 @@ export default function ChatInterface() {
       setMessages((prev) => {
         const updated = [...prev]
         updated[aiMessageIndex] = {
+          ...updated[aiMessageIndex],
           role: 'assistant',
           content: '[错误] 网络连接失败',
         }
@@ -269,10 +293,42 @@ export default function ChatInterface() {
       if (streamControllerRef.current === controller) {
         streamControllerRef.current = null
       }
+      // 期间如果已经开始了新的流（切换角色后立刻发消息），不要把新流的状态改掉
+      if (!streamControllerRef.current) {
+        setIsStreaming(false)
+      }
+      // 正常结束或用户主动停止才记统计；切换角色导致的中止不记
+      const stoppedByUser = userStoppedControllerRef.current === controller
+      if (!controller.signal.aborted || stoppedByUser) {
+        setLastStats({
+          firstTokenMs: firstTokenAt === null ? null : firstTokenAt - startedAt,
+          totalMs: performance.now() - startedAt,
+          chars: aiResponse.length,
+          stopped: stoppedByUser,
+        })
+      }
       if (!controller.signal.aborted) {
         setIsLoading(false)
       }
     }
+  }
+
+  // 停止生成：中止当前的 SSE 流，已经收到的内容保留在界面上
+  // （注意：后端要等整段回复生成完才写库，中途停止的这条回复不会被保存）
+  const handleStop = () => {
+    const controller = streamControllerRef.current
+    if (!controller) return
+    userStoppedControllerRef.current = controller
+    abortActiveStream()
+    setIsLoading(false)
+    // 还没收到任何内容就停止了：把空的占位消息换成提示，避免一直显示输入中
+    setMessages((prev) => {
+      const last = prev[prev.length - 1]
+      if (last?.role !== 'assistant' || last.content) return prev
+      const updated = [...prev]
+      updated[updated.length - 1] = { ...last, content: '（已停止生成）' }
+      return updated
+    })
   }
 
   // 处理发送消息（流式）
@@ -288,12 +344,12 @@ export default function ChatInterface() {
     setPendingImage(null)
 
     // 添加用户消息（带图片时一并展示缩略图）
-    setMessages((prev) => [...prev, { role: 'user', content: userMessage, image_url: imageUrl }])
+    setMessages((prev) => [...prev, { role: 'user', content: userMessage, image_url: imageUrl, created_at: new Date().toISOString() }])
     setIsLoading(true)
 
     // 占位符用于 AI 消息
     const aiMessageIndex = messages.length + 1
-    setMessages((prev) => [...prev, { role: 'assistant', content: '' }])
+    setMessages((prev) => [...prev, { role: 'assistant', content: '', created_at: new Date().toISOString() }])
 
     await streamAssistantReply(userMessage, imageUrl, aiMessageIndex)
   }
@@ -310,26 +366,29 @@ export default function ChatInterface() {
     const requestCharacterId = selectedCharacterId
 
     setIsLoading(true)
+    const startedAt = performance.now()
     setMessages((prev) => {
       const updated = [...prev]
-      updated[lastIndex] = { role: 'assistant', content: '' }
+      updated[lastIndex] = { role: 'assistant', content: '', created_at: new Date().toISOString() }
       return updated
     })
 
     try {
-      const result = await regenerateReply(conversationId, allowEmoji)
+      const result = await regenerateReply(conversationId, allowEmoji, thinking)
       if (activeCharacterIdRef.current !== requestCharacterId) return
       setMessages((prev) => {
         const updated = [...prev]
-        updated[lastIndex] = { role: 'assistant', content: result.reply }
+        updated[lastIndex] = { role: 'assistant', content: result.reply, created_at: new Date().toISOString() }
         return updated
       })
+      // 重新生成不是流式的，只有总耗时，没有首字时间
+      setLastStats({ firstTokenMs: null, totalMs: performance.now() - startedAt, chars: result.reply.length, stopped: false })
     } catch (error) {
       if (activeCharacterIdRef.current !== requestCharacterId) return
       console.error('Regenerate error:', error)
       setMessages((prev) => {
         const updated = [...prev]
-        updated[lastIndex] = { role: 'assistant', content: '[错误] 重新生成失败，请重试' }
+        updated[lastIndex] = { ...updated[lastIndex], role: 'assistant', content: '[错误] 重新生成失败，请重试' }
         return updated
       })
     } finally {
@@ -386,6 +445,34 @@ export default function ChatInterface() {
     setEditingCharacter(null)
   }
 
+  // 「清」：清空前二次确认，确认后走原来的清空逻辑
+  const handleClearWithConfirm = () => {
+    const name = selectedCharacter ? `和「${selectedCharacter.name}」的` : ''
+    if (!window.confirm(`确定清空${name}全部对话吗？清空后无法恢复。`)) return
+    handleClearMessages()
+  }
+
+  // 「存」：把当前对话导出成 Markdown 文件（纯前端生成，不请求后端）
+  const handleExport = () => {
+    if (!selectedCharacter || messages.length === 0) return
+    const now = new Date()
+    downloadTextFile(
+      chatExportFileName(selectedCharacter.name, now),
+      buildChatMarkdown({ characterName: selectedCharacter.name, messages, exportedAt: now })
+    )
+  }
+
+  // 窄屏上选完角色自动收起角色栏，把聊天区让出来
+  const handleSelectCharacter = (id) => {
+    setSelectedCharacterId(id)
+    if (!isWideScreen()) setIsSidebarOpen(false)
+  }
+
+  // 「再」可用的条件与 handleRegenerate 里的判断一致：最后一条是已有内容的 AI 回复
+  const lastMessage = messages[messages.length - 1]
+  const canRegenerate =
+    !isLoading && !!conversationId && lastMessage?.role === 'assistant' && !!lastMessage.content
+
   return (
     <ChatView
       characters={characters}
@@ -405,12 +492,12 @@ export default function ChatInterface() {
       isEditAvatarModalOpen={isEditAvatarModalOpen}
       messagesEndRef={messagesEndRef}
       fileInputRef={fileInputRef}
-      onSelectCharacter={setSelectedCharacterId}
+      onSelectCharacter={handleSelectCharacter}
       onOpenEditAvatar={() => setIsEditAvatarModalOpen(true)}
       onOpenEditCharacter={handleOpenEditCharacter}
       onDeleteCharacter={handleDeleteCharacter}
       onOpenCreateCharacter={handleOpenCreateCharacter}
-      onClearMessages={handleClearMessages}
+      onClearMessages={handleClearWithConfirm}
       onAllowEmojiChange={setAllowEmoji}
       onLogout={handleLogout}
       onRegenerate={handleRegenerate}
@@ -424,6 +511,16 @@ export default function ChatInterface() {
       onCharacterSaved={handleCharacterSaved}
       onCloseEditAvatar={() => setIsEditAvatarModalOpen(false)}
       onAvatarUpdated={handleAvatarUpdated}
+      thinking={thinking}
+      onToggleThinking={() => setThinking((prev) => !prev)}
+      isStreaming={isStreaming}
+      onStop={handleStop}
+      canRegenerate={canRegenerate}
+      onExport={handleExport}
+      lastStats={lastStats}
+      isSidebarOpen={isSidebarOpen}
+      onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+      onCloseSidebar={() => setIsSidebarOpen(false)}
     />
   )
 }

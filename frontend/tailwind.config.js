@@ -40,6 +40,13 @@ export default {
       fontFamily: {
         desk: ['"Microsoft YaHei UI"', '"PingFang SC"', '"Segoe UI"', 'system-ui', 'sans-serif'],
       },
+      // 角色没有立绘时的默认横幅：顶栏色到面板色的渐变，点缀紫色和玫红的光晕（颜色取自上面的色板）
+      backgroundImage: {
+        'desk-banner':
+          'radial-gradient(circle at 18% 35%, rgba(155, 89, 182, 0.35), transparent 42%), ' +
+          'radial-gradient(circle at 82% 20%, rgba(233, 69, 96, 0.22), transparent 38%), ' +
+          'linear-gradient(160deg, #1d2750 0%, #151b31 100%)',
+      },
       // 流式输出末尾的闪烁光标：1 秒一个周期，亮暗交替
       keyframes: {
         'cursor-blink': {
