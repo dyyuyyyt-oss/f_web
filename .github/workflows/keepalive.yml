@@ -1,0 +1,26 @@
+# 保活：每 10 分钟访问一次后端，避免 Render 免费实例 15 分钟无请求后休眠、下次访问要等 30~60 秒冷启动
+#
+# - 一个免费实例 7x24 运行约 720~744 小时/月，Render 每个工作区每月 750 免费小时，
+#   所以只适合工作区里只有这一个免费服务的情况
+# - GitHub 定时任务在高峰期可能延迟十几分钟，偶尔仍会冷启动；想更稳可以再配 UptimeRobot / cron-job.org
+# - 后端地址默认用下面的线上地址，可以在仓库 Settings → Secrets and variables → Actions → Variables
+#   里新建变量 BACKEND_URL 覆盖
+# - GitHub 会在仓库连续 60 天没有任何提交后自动停用定时任务，届时到 Actions 页面重新启用即可
+name: Keep backend awake
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping /api/health
+        env:
+          BACKEND_URL: ${{ vars.BACKEND_URL || 'https://f-web-69wr.onrender.com' }}
+        run: curl --fail --silent --show-error --max-time 90 --retry 2 --retry-delay 5 "$BACKEND_URL/api/health"
