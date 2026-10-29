@@ -15,6 +15,15 @@ export const FEATURES = [
     roles: ['user', 'admin'],
   },
   {
+    id: 'group',
+    title: '群聊',
+    desc: '拉 2~3 个角色进群，按顺序轮流接话',
+    icon: '👥',
+    to: '/group',
+    status: 'ready',
+    roles: ['user', 'admin'],
+  },
+  {
     id: 'admin',
     title: '管理后台',
     desc: '用户、注册申请与数据管理',

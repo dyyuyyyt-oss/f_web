@@ -5,6 +5,7 @@ import LoginPage from './pages/LoginPage'
 import AdminDashboard from './pages/AdminDashboard'
 import ChatPage from './pages/ChatPage'
 import HomePage from './pages/HomePage'
+import GroupPage from './pages/GroupPage'
 
 function App() {
   return (
@@ -25,6 +26,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <ChatPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/group"
+            element={
+              <ProtectedRoute>
+                <GroupPage />
               </ProtectedRoute>
             }
           />

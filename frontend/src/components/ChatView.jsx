@@ -11,7 +11,7 @@ import EditAvatarModal from './EditAvatarModal'
 // 这里不发请求、不持有业务状态。只有两处纯界面的小状态：立绘是否加载成功、输入框高度自适应
 
 // AI 消息的 Markdown 暗色样式：*星号* 包裹的动作 / 心理描写显示成暗色斜体，增强沉浸感
-const markdownComponents = {
+export const markdownComponents = {
   p: ({ children }) => <p className="mb-2 whitespace-pre-wrap break-words last:mb-0">{children}</p>,
   em: ({ children }) => <em className="italic text-desk-text-dim">{children}</em>,
   strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
@@ -40,7 +40,7 @@ const markdownComponents = {
 }
 
 // 顶栏 30×30 的单字按钮（不用 emoji：Windows 下会渲染成单色方块）
-function IconButton({ label, title, onClick, disabled, active }) {
+export function IconButton({ label, title, onClick, disabled, active }) {
   return (
     <button
       type="button"
@@ -60,7 +60,7 @@ function IconButton({ label, title, onClick, disabled, active }) {
   )
 }
 
-function Avatar({ character, className = 'h-9 w-9' }) {
+export function Avatar({ character, className = 'h-9 w-9' }) {
   return (
     <span className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-desk-control ring-1 ring-desk-divider ${className}`}>
       {character?.avatar ? (
