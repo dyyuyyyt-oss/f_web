@@ -43,33 +43,33 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="h-screen flex items-center justify-center bg-sky-400 px-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm px-6 py-8">
-        <h1 className="text-2xl font-bold text-gray-800 text-center whitespace-nowrap mb-6">征</h1>
+    <div className="h-dvh flex items-center justify-center bg-desk-bg font-desk px-4">
+      <div className="bg-desk-panel border border-desk-divider rounded-2xl shadow-2xl shadow-black/40 w-full max-w-sm px-6 py-8">
+        <h1 className="text-2xl font-bold text-white text-center whitespace-nowrap mb-6">征</h1>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">用户名</label>
+            <label className="block text-sm font-medium text-desk-text-dim mb-1">用户名</label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none text-sm"
+              className="w-full px-3 py-2 rounded-xl border border-transparent bg-desk-control text-desk-text placeholder:text-desk-text-faint focus:border-desk-accent outline-none text-sm"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">密码</label>
+            <label className="block text-sm font-medium text-desk-text-dim mb-1">密码</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none text-sm"
+              className="w-full px-3 py-2 rounded-xl border border-transparent bg-desk-control text-desk-text placeholder:text-desk-text-faint focus:border-desk-accent outline-none text-sm"
             />
           </div>
 
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            <p className="text-sm text-desk-accent bg-desk-accent/10 border border-desk-accent/30 rounded-xl px-3 py-2">
               {error}
             </p>
           )}
@@ -77,7 +77,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full px-4 py-2 bg-sky-500 text-white rounded-lg hover:bg-sky-600 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium"
+            className="w-full h-10 px-4 bg-desk-green text-desk-on-green rounded-btn hover:bg-desk-green-hover transition-colors disabled:bg-desk-control disabled:text-desk-text-faint disabled:cursor-not-allowed text-sm font-bold"
           >
             {isSubmitting ? '登录中...' : '登录'}
           </button>
@@ -85,7 +85,7 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={() => setIsRegisterOpen(true)}
-            className="w-full px-4 py-2 border border-sky-500 text-sky-600 rounded-lg hover:bg-sky-50 transition-colors text-sm font-medium"
+            className="w-full h-10 px-4 bg-desk-control text-desk-text rounded-btn hover:bg-desk-control-hover transition-colors text-sm font-semibold"
           >
             注册
           </button>
@@ -95,12 +95,12 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={() => setShowForgotPassword((prev) => !prev)}
-            className="text-xs text-gray-400 hover:text-gray-600 underline"
+            className="text-xs text-desk-text-faint hover:text-desk-text-dim underline"
           >
             忘记密码？
           </button>
           {showForgotPassword && (
-            <p className="text-xs text-gray-500 mt-2">
+            <p className="text-xs text-desk-text-dim mt-2">
               如有需要请联系管理员，邮箱：dyyuyyyt@gmail.com
             </p>
           )}

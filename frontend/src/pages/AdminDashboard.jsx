@@ -134,22 +134,22 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-gradient-to-r from-blue-600 to-blue-500 text-white py-4 px-6 shadow-lg flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold whitespace-nowrap">征</h1>
-          <p className="text-blue-100 text-sm mt-1">管理后台 · {user?.username}</p>
+    <div className="min-h-dvh bg-desk-bg font-desk text-desk-text">
+      <header className="flex h-14 items-center justify-between gap-3 border-b border-desk-divider bg-desk-header px-5">
+        <div className="flex min-w-0 items-baseline gap-3">
+          <h1 className="whitespace-nowrap text-[17px] font-bold text-white">征</h1>
+          <p className="truncate text-sm text-desk-text-dim">管理后台 · {user?.username}</p>
         </div>
         <div className="flex items-center gap-2">
           <Link
             to="/"
-            className="px-4 py-2 text-sm bg-white/20 rounded-lg hover:bg-white/30 transition-colors"
+            className="whitespace-nowrap rounded-btn px-3 py-1.5 text-sm font-semibold text-desk-text-dim transition-colors hover:bg-desk-control hover:text-desk-text"
           >
             返回大厅
           </Link>
           <button
             onClick={handleLogout}
-            className="px-4 py-2 text-sm bg-white/20 rounded-lg hover:bg-white/30 transition-colors"
+            className="whitespace-nowrap rounded-btn px-3 py-1.5 text-sm font-semibold text-desk-accent transition-colors hover:bg-desk-control hover:text-desk-accent-hover"
           >
             退出登录
           </button>
@@ -158,20 +158,20 @@ export default function AdminDashboard() {
 
       <main className="max-w-4xl mx-auto px-6 py-8 space-y-8">
         {error && (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+          <p className="text-sm text-desk-accent bg-desk-accent/10 border border-desk-accent/30 rounded-xl px-3 py-2">
             {error}
           </p>
         )}
 
         {/* 账号列表 */}
-        <section className="bg-white rounded-2xl shadow-sm border border-gray-100">
-          <div className="px-6 py-4 border-b border-gray-100">
-            <h2 className="font-bold text-gray-800">账号列表</h2>
+        <section className="bg-desk-panel rounded-2xl border border-desk-divider">
+          <div className="px-6 py-4 border-b border-desk-divider">
+            <h2 className="font-bold text-white">账号列表</h2>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full whitespace-nowrap text-sm">
               <thead>
-                <tr className="text-left text-gray-500 border-b border-gray-100">
+                <tr className="text-left text-desk-text-faint border-b border-desk-divider">
                   <th className="px-6 py-3 font-medium">用户名</th>
                   <th className="px-6 py-3 font-medium">角色</th>
                   <th className="px-6 py-3 font-medium">创建时间</th>
@@ -180,7 +180,7 @@ export default function AdminDashboard() {
               </thead>
               <tbody>
                 {users.map((u) => (
-                  <tr key={u.id} className="border-b border-gray-50 last:border-0">
+                  <tr key={u.id} className="border-b border-desk-divider/60 last:border-0">
                     {editingId === u.id ? (
                       <>
                         <td className="px-6 py-3">
@@ -188,50 +188,50 @@ export default function AdminDashboard() {
                             type="text"
                             value={editUsername}
                             onChange={(e) => setEditUsername(e.target.value)}
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                            className="w-full px-2 py-1 rounded-lg border border-transparent bg-desk-control text-desk-text focus:border-desk-accent outline-none text-sm"
                           />
                         </td>
-                        <td className="px-6 py-3 text-gray-500">{u.role}</td>
-                        <td className="px-6 py-3 text-gray-400">
+                        <td className="px-6 py-3 text-desk-text-dim">{u.role}</td>
+                        <td className="px-6 py-3 text-desk-text-faint">
                           <input
                             type="password"
                             placeholder="新密码（不改则留空）"
                             value={editPassword}
                             onChange={(e) => setEditPassword(e.target.value)}
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                            className="w-full px-2 py-1 rounded-lg border border-transparent bg-desk-control text-desk-text focus:border-desk-accent outline-none text-sm"
                           />
                         </td>
                         <td className="px-6 py-3 space-x-2 whitespace-nowrap">
                           <button
                             onClick={() => saveEdit(u.id)}
-                            className="text-sky-600 hover:underline"
+                            className="text-desk-user-name hover:underline"
                           >
                             保存
                           </button>
-                          <button onClick={cancelEdit} className="text-gray-400 hover:underline">
+                          <button onClick={cancelEdit} className="text-desk-text-faint hover:underline">
                             取消
                           </button>
                         </td>
                       </>
                     ) : (
                       <>
-                        <td className="px-6 py-3 text-gray-800">{u.username}</td>
-                        <td className="px-6 py-3 text-gray-500">
+                        <td className="px-6 py-3 text-desk-text">{u.username}</td>
+                        <td className="px-6 py-3 text-desk-text-dim">
                           {u.role === 'admin' ? '管理员' : '普通用户'}
                         </td>
-                        <td className="px-6 py-3 text-gray-400">
+                        <td className="px-6 py-3 text-desk-text-faint">
                           {new Date(u.created_at).toLocaleString()}
                         </td>
                         <td className="px-6 py-3 space-x-3 whitespace-nowrap">
                           <button
                             onClick={() => startEdit(u)}
-                            className="text-sky-600 hover:underline"
+                            className="text-desk-user-name hover:underline"
                           >
                             编辑
                           </button>
                           <button
                             onClick={() => handleDelete(u.id)}
-                            className="text-red-500 hover:underline"
+                            className="text-desk-accent hover:underline"
                           >
                             删除
                           </button>
@@ -242,7 +242,7 @@ export default function AdminDashboard() {
                 ))}
                 {users.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-6 py-6 text-center text-gray-400">
+                    <td colSpan={4} className="px-6 py-6 text-center text-desk-text-faint">
                       暂无账号
                     </td>
                   </tr>
@@ -254,32 +254,32 @@ export default function AdminDashboard() {
           {/* 手动新增账号 */}
           <form
             onSubmit={handleCreate}
-            className="px-6 py-4 border-t border-gray-100 flex flex-wrap items-end gap-3"
+            className="px-6 py-4 border-t border-desk-divider flex flex-wrap items-end gap-3"
           >
             <div>
-              <label className="block text-xs text-gray-500 mb-1">用户名</label>
+              <label className="block text-xs text-desk-text-faint mb-1">用户名</label>
               <input
                 type="text"
                 value={newUsername}
                 onChange={(e) => setNewUsername(e.target.value)}
-                className="px-2 py-1.5 border border-gray-300 rounded text-sm"
+                className="px-2 py-1.5 rounded-lg border border-transparent bg-desk-control text-desk-text focus:border-desk-accent outline-none text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">密码</label>
+              <label className="block text-xs text-desk-text-faint mb-1">密码</label>
               <input
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                className="px-2 py-1.5 border border-gray-300 rounded text-sm"
+                className="px-2 py-1.5 rounded-lg border border-transparent bg-desk-control text-desk-text focus:border-desk-accent outline-none text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">角色</label>
+              <label className="block text-xs text-desk-text-faint mb-1">角色</label>
               <select
                 value={newRole}
                 onChange={(e) => setNewRole(e.target.value)}
-                className="px-2 py-1.5 border border-gray-300 rounded text-sm"
+                className="px-2 py-1.5 rounded-lg border border-transparent bg-desk-control text-desk-text focus:border-desk-accent outline-none text-sm"
               >
                 <option value="user">普通用户</option>
                 <option value="admin">管理员</option>
@@ -288,7 +288,7 @@ export default function AdminDashboard() {
             <button
               type="submit"
               disabled={isCreating}
-              className="px-4 py-1.5 bg-sky-500 text-white rounded-lg hover:bg-sky-600 transition-colors disabled:bg-gray-400 text-sm font-medium"
+              className="px-4 py-1.5 bg-desk-green text-desk-on-green rounded-btn hover:bg-desk-green-hover transition-colors disabled:bg-desk-control disabled:text-desk-text-faint text-sm font-bold"
             >
               {isCreating ? '添加中...' : '+ 添加账号'}
             </button>
@@ -296,14 +296,14 @@ export default function AdminDashboard() {
         </section>
 
         {/* 待审核申请 */}
-        <section className="bg-white rounded-2xl shadow-sm border border-gray-100">
-          <div className="px-6 py-4 border-b border-gray-100">
-            <h2 className="font-bold text-gray-800">待审核的注册申请</h2>
+        <section className="bg-desk-panel rounded-2xl border border-desk-divider">
+          <div className="px-6 py-4 border-b border-desk-divider">
+            <h2 className="font-bold text-white">待审核的注册申请</h2>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full whitespace-nowrap text-sm">
               <thead>
-                <tr className="text-left text-gray-500 border-b border-gray-100">
+                <tr className="text-left text-desk-text-faint border-b border-desk-divider">
                   <th className="px-6 py-3 font-medium">用户名</th>
                   <th className="px-6 py-3 font-medium">提交时间</th>
                   <th className="px-6 py-3 font-medium">操作</th>
@@ -311,21 +311,21 @@ export default function AdminDashboard() {
               </thead>
               <tbody>
                 {pendingRequests.map((req) => (
-                  <tr key={req.id} className="border-b border-gray-50 last:border-0">
-                    <td className="px-6 py-3 text-gray-800">{req.username}</td>
-                    <td className="px-6 py-3 text-gray-400">
+                  <tr key={req.id} className="border-b border-desk-divider/60 last:border-0">
+                    <td className="px-6 py-3 text-desk-text">{req.username}</td>
+                    <td className="px-6 py-3 text-desk-text-faint">
                       {new Date(req.created_at).toLocaleString()}
                     </td>
                     <td className="px-6 py-3 space-x-3 whitespace-nowrap">
                       <button
                         onClick={() => handleApprove(req.id)}
-                        className="text-green-600 hover:underline"
+                        className="text-desk-green hover:underline"
                       >
                         同意
                       </button>
                       <button
                         onClick={() => handleReject(req.id)}
-                        className="text-red-500 hover:underline"
+                        className="text-desk-accent hover:underline"
                       >
                         拒绝
                       </button>
@@ -334,7 +334,7 @@ export default function AdminDashboard() {
                 ))}
                 {pendingRequests.length === 0 && (
                   <tr>
-                    <td colSpan={3} className="px-6 py-6 text-center text-gray-400">
+                    <td colSpan={3} className="px-6 py-6 text-center text-desk-text-faint">
                       暂无待审核申请
                     </td>
                   </tr>

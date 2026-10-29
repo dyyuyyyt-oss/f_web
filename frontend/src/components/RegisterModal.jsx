@@ -31,13 +31,13 @@ export default function RegisterModal({ onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-800">注册申请</h2>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">
+      <div className="bg-desk-panel border border-desk-divider rounded-2xl shadow-2xl w-full max-w-sm font-desk">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-desk-divider bg-desk-header rounded-t-2xl">
+          <h2 className="text-[17px] font-bold text-white">注册申请</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+            className="text-desk-text-dim hover:text-desk-text text-xl leading-none"
             aria-label="关闭"
           >
             ×
@@ -46,10 +46,10 @@ export default function RegisterModal({ onClose }) {
 
         {submitted ? (
           <div className="px-6 py-8 text-center space-y-4">
-            <p className="text-gray-700">已提交，等待管理员审核</p>
+            <p className="text-desk-text">已提交，等待管理员审核</p>
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-sky-500 text-white rounded-lg hover:bg-sky-600 transition-colors text-sm font-medium"
+              className="h-10 px-4 bg-desk-green text-desk-on-green rounded-btn hover:bg-desk-green-hover transition-colors text-sm font-bold"
             >
               知道了
             </button>
@@ -57,27 +57,27 @@ export default function RegisterModal({ onClose }) {
         ) : (
           <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">意向用户名</label>
+              <label className="block text-sm font-medium text-desk-text-dim mb-1">意向用户名</label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none text-sm"
+                className="w-full px-3 py-2 rounded-xl border border-transparent bg-desk-control text-desk-text placeholder:text-desk-text-faint focus:border-desk-accent outline-none text-sm"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">意向密码</label>
+              <label className="block text-sm font-medium text-desk-text-dim mb-1">意向密码</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none text-sm"
+                className="w-full px-3 py-2 rounded-xl border border-transparent bg-desk-control text-desk-text placeholder:text-desk-text-faint focus:border-desk-accent outline-none text-sm"
               />
             </div>
 
             {error && (
-              <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+              <p className="text-sm text-desk-accent bg-desk-accent/10 border border-desk-accent/30 rounded-xl px-3 py-2">
                 {error}
               </p>
             )}
@@ -86,14 +86,14 @@ export default function RegisterModal({ onClose }) {
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                className="flex-1 h-10 px-4 bg-desk-control text-desk-text rounded-btn hover:bg-desk-control-hover transition-colors text-sm font-semibold"
               >
                 取消
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="flex-1 px-4 py-2 bg-sky-500 text-white rounded-lg hover:bg-sky-600 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium"
+                className="flex-1 h-10 px-4 bg-desk-green text-desk-on-green rounded-btn hover:bg-desk-green-hover transition-colors disabled:bg-desk-control disabled:text-desk-text-faint disabled:cursor-not-allowed text-sm font-bold"
               >
                 {isSubmitting ? '提交中...' : '提交申请'}
               </button>

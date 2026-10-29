@@ -9,7 +9,7 @@ export default function ProtectedRoute({ children, requireAdmin = false }) {
 
   if (isLoading) {
     return (
-      <div className="h-screen flex items-center justify-center text-gray-400">
+      <div className="h-dvh flex items-center justify-center bg-desk-bg font-desk text-sm text-desk-text-faint">
         加载中...
       </div>
     )

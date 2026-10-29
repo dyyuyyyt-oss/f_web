@@ -46,8 +46,8 @@ export default function WakeBanner() {
       <div
         role="status"
         aria-live="polite"
-        className={`pointer-events-auto w-full max-w-md rounded-xl shadow-lg border px-4 py-3 flex items-center gap-3 text-sm ${
-          failed ? 'bg-red-50 border-red-100 text-red-700' : 'bg-white border-blue-100 text-gray-700'
+        className={`pointer-events-auto w-full max-w-md rounded-xl shadow-2xl shadow-black/40 border font-desk px-4 py-3 flex items-center gap-3 text-sm ${
+          failed ? 'bg-desk-panel border-desk-accent/40 text-desk-accent' : 'bg-desk-panel border-desk-divider text-desk-text'
         }`}
       >
         {failed ? (
@@ -56,19 +56,19 @@ export default function WakeBanner() {
             <button
               type="button"
               onClick={() => wakeBackend()}
-              className="shrink-0 px-3 py-1 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+              className="shrink-0 px-3 py-1 rounded-btn bg-desk-accent font-semibold text-white hover:bg-desk-accent-hover transition-colors"
             >
               重试
             </button>
           </>
         ) : (
           <>
-            <span className="shrink-0 h-4 w-4 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
+            <span className="shrink-0 h-4 w-4 rounded-full border-2 border-desk-accent border-t-transparent animate-spin" />
             {/* 窄屏需要换行时在逗号处断开，不把"秒"单独挤到下一行 */}
             <span className="flex-1">
               服务正在唤醒，<span className="whitespace-nowrap">首次访问需要 30~60 秒…</span>
             </span>
-            {elapsed > 0 && <span className="shrink-0 text-xs text-gray-400 tabular-nums">{elapsed} 秒</span>}
+            {elapsed > 0 && <span className="shrink-0 text-xs text-desk-text-faint tabular-nums">{elapsed} 秒</span>}
           </>
         )}
       </div>
