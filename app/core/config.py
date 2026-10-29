@@ -4,8 +4,12 @@
 """
 
 from pathlib import Path
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from typing import Optional, Literal
+
+# JWT 签名密钥的开发默认值：仓库公开，任何人都能看到它，生产环境必须用 SECRET_KEY 覆盖
+DEFAULT_SECRET_KEY = "dev-only-insecure-secret-change-me"
 
 
 class Settings(BaseSettings):
@@ -55,8 +59,21 @@ class Settings(BaseSettings):
 
     # ==================== 认证配置 ====================
     # 用于签发/校验登录 JWT 的密钥；生产环境必须通过环境变量 SECRET_KEY 覆盖这个开发默认值
-    secret_key: str = "dev-only-insecure-secret-change-me"
+    secret_key: str = DEFAULT_SECRET_KEY
     access_token_expire_minutes: int = 60 * 24 * 7  # 登录 token 有效期：7 天
+
+    # ==================== 预置账号 ====================
+    # 启动时如果账号不存在就自动创建（已存在则跳过，不会覆盖改过的密码）。
+    # 密码只从环境变量读取，不再写死在代码里（仓库是公开的）；不设置就不创建对应账号。
+    preset_user_password: Optional[str] = None  # 普通用户 confur 的初始密码，环境变量 PRESET_USER_PASSWORD
+    preset_admin_password: Optional[str] = None  # 管理员 con 的初始密码，环境变量 PRESET_ADMIN_PASSWORD
+
+    @field_validator("secret_key", mode="before")
+    @classmethod
+    def _empty_secret_key_falls_back(cls, value):
+        # .env.example 里 SECRET_KEY= 留空，直接复制成 .env 时会得到空字符串，
+        # 空密钥签发的 JWT 等于没签名，这里回退到开发默认值（启动时会打告警日志）
+        return value or DEFAULT_SECRET_KEY
 
     # ==================== 流式响应缓冲 ====================
     stream_buffer_size: int = 10  # 单位：字符数

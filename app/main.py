@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.core.config import settings
+from app.core.config import settings, DEFAULT_SECRET_KEY
 from app.db.session import init_db, close_db
 from app.models import Character, User, Conversation, Message
 from app.db.session import SessionLocal
@@ -60,6 +60,10 @@ async def lifespan(app: FastAPI):
     logger.info(f"   - 数据库: {settings.database_url}")
     logger.info(f"   - CORS 源: {settings.cors_origins}")
     logger.info("=" * 50)
+
+    if settings.secret_key == DEFAULT_SECRET_KEY:
+        # 默认密钥写在公开仓库里，任何人都能用它伪造登录 token（包括管理员），线上必须覆盖
+        logger.warning("⚠️⚠️⚠️ SECRET_KEY 仍是代码里的默认值！线上环境请立即设置为随机字符串 ⚠️⚠️⚠️")
 
     yield
 
@@ -209,19 +213,26 @@ def _insert_sample_data() -> None:
 def _insert_preset_accounts() -> None:
     """
     插入预置账号：普通用户 confur 和管理员 con
-    密码统一哈希存储，幂等（已存在则跳过）
+    初始密码从环境变量 PRESET_USER_PASSWORD / PRESET_ADMIN_PASSWORD 读取，未设置则跳过；
+    密码统一哈希存储，幂等（已存在则跳过，不会覆盖之后改过的密码）
     """
     db = SessionLocal()
 
     try:
         preset_accounts = [
-            {"username": "confur", "password": "1101062011Zz", "role": "user"},
-            {"username": "con", "password": "1101062011Zz", "role": "admin"},
+            {"username": "confur", "password": settings.preset_user_password, "role": "user", "env": "PRESET_USER_PASSWORD"},
+            {"username": "con", "password": settings.preset_admin_password, "role": "admin", "env": "PRESET_ADMIN_PASSWORD"},
         ]
 
         for account in preset_accounts:
             existing = db.query(User).filter_by(username=account["username"]).first()
             if existing:
+                continue
+
+            if not account["password"]:
+                logger.warning(
+                    f"⚠️ 预置账号 {account['username']} 不存在，且未设置环境变量 {account['env']}，跳过创建"
+                )
                 continue
 
             new_user = User(
