@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     # ==================== 群聊 ====================
     group_max_members: int = 3  # 一个群最多几个角色，环境变量 GROUP_MAX_MEMBERS
     group_max_speakers: int = 3  # 一轮默认最多几个角色发言（一轮 = N 次模型调用），环境变量 GROUP_MAX_SPEAKERS
+    group_heartbeat_seconds: float = 15  # 群聊 SSE 超过这么多秒没有数据就发一次心跳，防止连接被代理断开
 
     # ==================== 流式响应缓冲 ====================
     stream_buffer_size: int = 10  # 单位：字符数

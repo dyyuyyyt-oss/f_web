@@ -7,24 +7,28 @@ import logging
 from datetime import datetime
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import Character, Group, Message, User
 from app.schemas.group import (
+    GroupChatRequest,
     GroupConfigSchema,
     GroupCreateRequest,
     GroupMessagesResponse,
     GroupSchema,
     GroupUpdateRequest,
 )
+from app.services.group_chat_service import GroupChatService
 from app.services.group_service import (
     MIN_GROUP_MEMBERS,
     delete_group_cascade,
     get_group_conversation,
     get_own_group,
     group_to_dict,
+    ordered_members,
     replace_members,
     validate_member_ids,
 )
@@ -129,3 +133,37 @@ async def clear_group_messages(group_id: int, db: Session = Depends(get_db), cur
     deleted = db.query(Message).filter_by(conversation_id=conversation.id).delete(synchronize_session=False)
     db.commit()
     return {"deleted": deleted}
+
+
+@router.post(
+    "/{group_id}/chat",
+    summary="群聊发言（SSE）",
+    description="用户说一句，群里的角色按发言顺序依次各说一段。事件：start / speaker_start / content / speaker_end / error / done，"
+    "详见 app/services/group_chat_service.py。",
+    responses={
+        200: {"description": "SSE 流"},
+        400: {"description": "群里没有角色，或 conversation_id 不是这个群的会话"},
+        403: {"description": "不是群主"},
+        404: {"description": "群不存在"},
+    },
+)
+async def group_chat(group_id: int, payload: GroupChatRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    group = get_own_group(db, group_id, current_user.id)
+    if not ordered_members(db, group.id):
+        raise HTTPException(status_code=400, detail="群里还没有角色")
+    if payload.conversation_id is not None:
+        conversation = get_group_conversation(db, group)
+        if conversation is None or conversation.id != payload.conversation_id:
+            raise HTTPException(status_code=400, detail="会话与群不匹配")
+
+    service = GroupChatService()
+    return StreamingResponse(
+        service.stream(
+            group_id=group.id,
+            message=payload.message,
+            allow_emoji=payload.allow_emoji,
+            max_speakers=payload.max_speakers,
+        ),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
