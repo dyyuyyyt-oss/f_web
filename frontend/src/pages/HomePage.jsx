@@ -27,8 +27,8 @@ function FeatureCard({ feature }) {
         </span>
         <StatusBadge ready={ready} />
       </div>
-      <h2 className="mt-4 text-base font-bold text-desk-text">{feature.title}</h2>
-      <p className="mt-1 text-sm text-desk-text-dim">{feature.desc}</p>
+      {/* 只显示标题，不显示描述（features.js 里的 desc 保留备用） */}
+      <h2 className="mt-3 text-base font-bold text-desk-text">{feature.title}</h2>
     </>
   )
 
@@ -79,7 +79,6 @@ export default function HomePage() {
 
       <main className="mx-auto max-w-5xl px-5 py-8">
         <p className="text-xl font-bold">欢迎回来，{user.username}</p>
-        <p className="mt-1 text-sm text-desk-text-dim">选择一个功能开始</p>
 
         <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {features.map((feature) => (
