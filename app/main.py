@@ -11,7 +11,7 @@ from app.core.config import settings, DEFAULT_SECRET_KEY
 from app.db.session import init_db, close_db
 from app.models import Character, User, Conversation, Message
 from app.db.session import SessionLocal
-from app.api.routes import health, chat, characters, auth, admin, image, upload
+from app.api.routes import health, chat, characters, auth, admin, image, upload, groups
 from app.core.security import hash_password
 import logging
 from datetime import datetime
@@ -88,6 +88,7 @@ app = FastAPI(
         {"name": "管理后台", "description": "账号管理与注册审核相关接口，仅管理员可访问"},
         {"name": "图片识别", "description": "图片内容描述相关接口"},
         {"name": "文件上传", "description": "通用文件上传相关接口"},
+        {"name": "群聊", "description": "多个角色的群聊：群管理、群聊历史、多角色轮流发言"},
     ],
     lifespan=lifespan,
 )
@@ -114,6 +115,7 @@ app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(admin.router, prefix=settings.api_prefix)
 app.include_router(image.router, prefix=settings.api_prefix)
 app.include_router(upload.router, prefix=settings.api_prefix)
+app.include_router(groups.router, prefix=settings.api_prefix)
 
 
 # ==================== 静态文件（头像、聊天图片等上传文件）====================

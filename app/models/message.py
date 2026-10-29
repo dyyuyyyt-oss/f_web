@@ -18,6 +18,8 @@ class Message(Base):
     content = Column(Text, nullable=False)  # 消息内容（用户原始文字，不含图片描述改写）
     image_url = Column(String(500), nullable=True)  # 用户发送的图片地址（可选）
     image_description = Column(Text, nullable=True)  # 豆包生成的图片描述，用于注入对话上下文
+    # 群聊里这条 assistant 消息是哪个角色说的；单聊消息为空
+    speaker_id = Column(Integer, ForeignKey("character.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     def __repr__(self) -> str:

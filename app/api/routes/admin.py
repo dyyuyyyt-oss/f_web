@@ -10,6 +10,8 @@ from app.db.session import get_db
 from app.api.deps import require_admin
 from app.models.user import User
 from app.models.registration_request import RegistrationRequest
+from app.models import Conversation, Group, Message
+from app.services.group_service import delete_group_cascade
 from app.schemas.auth import UserPublicSchema
 from app.schemas.admin import UserCreateRequest, UserUpdateRequest, RegistrationRequestSchema
 from app.core.security import hash_password
@@ -145,12 +147,22 @@ async def delete_user(
         if not user:
             raise HTTPException(status_code=404, detail="账号不存在")
 
+        # 先删他的群（含群聊记录），再删他的单聊会话和消息，最后删账号；
+        # 原来只删 user 这一行：PostgreSQL 上有外键约束时会删除失败，SQLite 上会留下孤儿数据
+        for group in db.query(Group).filter_by(owner_id=user.id).all():
+            delete_group_cascade(db, group)
+        conversation_ids = [row.id for row in db.query(Conversation.id).filter_by(user_id=user.id).all()]
+        if conversation_ids:
+            db.query(Message).filter(Message.conversation_id.in_(conversation_ids)).delete(synchronize_session=False)
+            db.query(Conversation).filter(Conversation.id.in_(conversation_ids)).delete(synchronize_session=False)
+
         db.delete(user)
         db.commit()
         return {"message": "账号已删除"}
     except HTTPException:
         raise
     except Exception as e:
+        db.rollback()
         logger.error(f"Error deleting user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="删除账号失败")
 

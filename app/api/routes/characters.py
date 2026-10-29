@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models import Character, Conversation, Message
+from app.services.group_service import detach_character_from_groups
 from app.schemas.character import (
     CharacterResponseSchema,
     CharacterCreate,
@@ -284,6 +285,9 @@ async def delete_character(
         character = db.query(Character).filter(Character.id == character_id).first()
         if not character:
             raise HTTPException(status_code=404, detail="角色不存在")
+
+        # 群聊：把它移出所有群，群聊历史里它说过的话保留但不再关联到这个角色
+        detach_character_from_groups(db, character_id)
 
         # 有外键约束，必须先删 message，再删 conversation，最后删 character
         conversation_ids = [

@@ -75,6 +75,10 @@ class Settings(BaseSettings):
         # 空密钥签发的 JWT 等于没签名，这里回退到开发默认值（启动时会打告警日志）
         return value or DEFAULT_SECRET_KEY
 
+    # ==================== 群聊 ====================
+    group_max_members: int = 3  # 一个群最多几个角色，环境变量 GROUP_MAX_MEMBERS
+    group_max_speakers: int = 3  # 一轮默认最多几个角色发言（一轮 = N 次模型调用），环境变量 GROUP_MAX_SPEAKERS
+
     # ==================== 流式响应缓冲 ====================
     stream_buffer_size: int = 10  # 单位：字符数
 

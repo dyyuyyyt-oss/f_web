@@ -307,6 +307,8 @@ async def continue_message(
         raise HTTPException(status_code=404, detail="会话不存在")
     if conversation.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权操作该会话")
+    if conversation.group_id is not None:
+        raise HTTPException(status_code=400, detail="群聊会话不支持续写")
 
     last_message = (
         db.query(Message)
