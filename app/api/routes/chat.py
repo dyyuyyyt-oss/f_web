@@ -60,6 +60,17 @@ async def stream_chat(
     data: ！
     ...
     """
+    # 客户端传了 conversation_id 时必须校验归属：否则换一个 id 就能往别人的会话里发消息，
+    # 模型还会读到别人的聊天历史。前端目前不传这个参数，所以对正常使用没有影响
+    if conversation_id is not None:
+        conversation = db.query(Conversation).filter_by(id=conversation_id).first()
+        if not conversation:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        if conversation.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="无权操作该会话")
+        if conversation.character_id != character_id:
+            raise HTTPException(status_code=400, detail="会话与角色不匹配")
+
     chat_service = ChatService()
 
     try:
