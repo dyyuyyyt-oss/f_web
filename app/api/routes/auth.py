@@ -4,6 +4,7 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.api.deps import get_current_user
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
         200: {"description": "登录成功，返回 JWT 令牌和用户信息"},
         401: {"description": "用户名或密码错误"},
         500: {"description": "服务器内部错误，登录失败"},
+        503: {"description": "数据库暂时连不上，服务暂不可用"},
     },
 )
 async def login(payload: LoginRequest, db: Session = Depends(get_db)):
@@ -48,6 +50,11 @@ async def login(payload: LoginRequest, db: Session = Depends(get_db)):
         return TokenResponse(access_token=token, user=user)
     except HTTPException:
         raise
+    except OperationalError as e:
+        # 数据库连不上（如 Render 免费 Postgres 到期、实例重启中）：返回 503 而不是笼统的 500，
+        # 前端据此提示"服务暂时不可用"，不会让用户误以为是自己密码输错了
+        logger.error(f"Database unavailable during login: {e}")
+        raise HTTPException(status_code=503, detail="服务暂时不可用（数据库连接失败），请稍后再试")
     except Exception as e:
         logger.error(f"Error during login: {e}")
         raise HTTPException(status_code=500, detail="登录失败")

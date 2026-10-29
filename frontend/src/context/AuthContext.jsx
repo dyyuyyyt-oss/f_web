@@ -8,7 +8,9 @@ const AuthContext = createContext(null)
 // 同时用 /api/auth/me 向后端校验 token 是否仍然有效
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => (getToken() ? getStoredUser() : null))
-  const [isLoading, setIsLoading] = useState(!!getToken())
+  // 有缓存的用户信息就直接渲染页面，不必等 /api/auth/me 返回（后端冷启动时可能要等很久）；
+  // 只有拿到 token 却没有缓存用户信息时，才需要等校验结果
+  const [isLoading, setIsLoading] = useState(() => !!getToken() && !getStoredUser())
 
   useEffect(() => {
     if (!getToken()) {
@@ -18,9 +20,13 @@ export function AuthProvider({ children }) {
 
     getCurrentUser()
       .then(setUser)
-      .catch(() => {
-        clearAuth()
-        setUser(null)
+      .catch((err) => {
+        // 只有后端明确返回 401（token 无效或过期）才清掉登录态；
+        // 超时、网络错误、后端冷启动、数据库故障都是暂时的，不应该把用户踢下线
+        if (err?.status === 401) {
+          clearAuth()
+          setUser(null)
+        }
       })
       .finally(() => setIsLoading(false))
   }, [])
