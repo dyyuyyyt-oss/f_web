@@ -36,8 +36,7 @@ export default function LoginPage() {
   return (
     <div className="h-screen flex items-center justify-center bg-sky-400 px-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm px-6 py-8">
-        <h1 className="text-2xl font-bold text-gray-800 text-center mb-1">Confur 的个人空间</h1>
-        <p className="text-gray-400 text-sm text-center mb-6">登录后开始聊天</p>
+        <h1 className="text-2xl font-bold text-gray-800 text-center whitespace-nowrap mb-6">征</h1>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

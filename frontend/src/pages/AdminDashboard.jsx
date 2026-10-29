@@ -137,7 +137,7 @@ export default function AdminDashboard() {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-gradient-to-r from-blue-600 to-blue-500 text-white py-4 px-6 shadow-lg flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Confur 的个人空间</h1>
+          <h1 className="text-2xl font-bold whitespace-nowrap">征</h1>
           <p className="text-blue-100 text-sm mt-1">管理后台 · {user?.username}</p>
         </div>
         <button
