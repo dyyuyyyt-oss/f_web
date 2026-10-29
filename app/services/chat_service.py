@@ -4,6 +4,7 @@
 """
 
 import asyncio
+from datetime import datetime
 from typing import AsyncGenerator, Optional
 from app.core.config import settings
 from app.services.ai_client import get_ai_client
@@ -16,6 +17,12 @@ import logging
 
 
 logger = logging.getLogger(__name__)
+
+# 续写时追加在历史末尾的指令：只发给模型，不入库
+CONTINUE_INSTRUCTION = (
+    "（接着你上面说的继续，再写一两句。不要重复已经说过的内容，"
+    "不要重新打招呼，不要总结，就像话还没说完一样自然接下去。）"
+)
 
 # 图片识别失败时的降级提示，直接告诉 AI 图片识别失败，让它引导用户用文字描述
 IMAGE_DESCRIBE_FALLBACK = "用户发送了一张图片，但图片内容识别失败，请礼貌地让用户用文字描述一下"
@@ -519,6 +526,100 @@ class ChatService:
         except Exception as e:
             logger.error(f"Error in regenerate: {e}")
             raise
+        finally:
+            self.close_db()
+
+    async def continue_reply(
+        self,
+        conversation_id: int,
+        allow_emoji: bool = True,
+    ) -> AsyncGenerator[str, None]:
+        """
+        续写：让模型接着最后一条 assistant 回复继续往下写
+
+        - 不新建 user 消息，也不新建 assistant 消息：新内容直接追加到最后一条 assistant 消息上
+        - 发给模型的历史末尾追加一条虚拟 user 指令（CONTINUE_INSTRUCTION，不入库）
+        - 用户中途停止（客户端断开）时，已经生成的部分也会追加保存
+
+        会话归属、最后一条是否为 assistant 由路由层在开始流式之前校验（不满足直接返回 4xx）
+
+        Yields:
+            缓冲后的文本段落（和 stream_chat 同样的缓冲规则）
+        """
+        db = self.get_db()
+        last_message = None
+        appended = ""
+        saved = False
+
+        try:
+            conversation = db.query(Conversation).filter_by(id=conversation_id).first()
+            character = db.query(Character).filter_by(id=conversation.character_id).first()
+            if not character:
+                yield "[错误] 角色不存在"
+                return
+
+            messages_db = (
+                db.query(Message)
+                .filter_by(conversation_id=conversation_id)
+                .order_by(Message.created_at.desc(), Message.id.desc())
+                .limit(HISTORY_WINDOW_SIZE)
+                .all()
+            )
+            messages_db.reverse()
+            last_message = messages_db[-1]
+
+            # 空内容的历史消息（早期流式回复落库为空的遗留数据）不发给模型
+            history_messages = [
+                {"role": msg.role, "content": _build_message_content_for_ai(msg.content, msg.image_description)}
+                for msg in messages_db
+                if msg.content
+            ]
+            system_prompt = _build_system_prompt(character, allow_emoji)
+            messages = (
+                [{"role": "system", "content": system_prompt}]
+                + history_messages
+                + [{"role": "user", "content": CONTINUE_INSTRUCTION}]
+            )
+
+            buffer = ""
+            punctuation_marks = "。！？；.!?;"
+            buffer_size = settings.stream_buffer_size
+            source = self.mock_stream_response() if settings.use_mock_ai else get_ai_client().stream_chat(messages)
+
+            async for chunk in source:
+                # AI 客户端出错时会把错误当成一段文字吐出来：照常推给前端提示，但不拼进角色的回复里
+                if chunk.startswith("[错误]"):
+                    if buffer:
+                        yield buffer
+                        buffer = ""
+                    yield chunk
+                    continue
+                buffer += chunk
+                appended += chunk
+                if len(buffer) >= buffer_size or any(p in buffer for p in punctuation_marks):
+                    yield buffer
+                    buffer = ""
+            if buffer:
+                yield buffer
+
+            if appended:
+                last_message.content += appended
+                conversation.updated_at = datetime.utcnow()
+                db.commit()
+            saved = True
+
+        except (GeneratorExit, asyncio.CancelledError):
+            # 用户中途点了「停止」：已经续写出来的部分照样追加保存
+            if last_message is not None and appended and not saved:
+                try:
+                    last_message.content += appended
+                    db.commit()
+                except Exception as save_error:
+                    logger.error(f"Error saving partial continuation after disconnect: {save_error}")
+            raise
+        except Exception as e:
+            logger.error(f"Error in continue_reply: {e}")
+            yield f"[错误] 续写失败: {str(e)}"
         finally:
             self.close_db()
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { useNavigate } from 'react-router-dom'
 import { getCharacters, deleteCharacter } from '../api/characters'
-import { getChatHistory, regenerateReply, clearChatHistory } from '../api/chat'
+import { getChatHistory, regenerateReply, clearChatHistory, continueReply } from '../api/chat'
 import { uploadChatImage } from '../api/upload'
 import { resolveApiUrl } from '../api/config'
 import { getToken } from '../api/http'
@@ -32,6 +32,7 @@ export default function ChatInterface() {
   const [pendingImage, setPendingImage] = useState(null) // { url } 已上传成功、待随消息一起发送的图片
   const [isUploadingImage, setIsUploadingImage] = useState(false)
   const [imageUploadError, setImageUploadError] = useState('')
+  const [continueError, setContinueError] = useState('')
   // 「思考」开关：随流式 / 重新生成请求带上 thinking 参数（后端当前还没有读取这个参数）
   const [thinking, setThinking] = useState(false)
   // 是否正在接收 SSE 流：只有这时「停止」可点（重新生成走的是普通请求，不能中途停止）
@@ -212,10 +213,12 @@ export default function ChatInterface() {
     scrollToBottom()
   }, [messages])
 
-  // 请求 AI 流式回复，写入 messages[aiMessageIndex]（发送新消息复用这个逻辑）
+  // 请求 AI 流式回复，写入 messages[aiMessageIndex]（发送新消息、续写都复用这个逻辑）
+  // 续写时传 options：request 是要请求的接口（见 api/chat.js 的 continueReply），
+  // prefix 是这条消息原有的内容，新收到的文字拼在它后面
   // 用 AbortController 支持中途取消：切换角色或组件卸载时会调用 abortActiveStream() 中止请求，
   // 中止后不再触发任何 setState，避免把已经切走的角色的内容写进新角色的消息列表
-  const streamAssistantReply = async (userMessage, imageUrl, aiMessageIndex) => {
+  const streamAssistantReply = async (userMessage, imageUrl, aiMessageIndex, { request = null, prefix = '' } = {}) => {
     const controller = new AbortController()
     streamControllerRef.current = controller
     setIsStreaming(true)
@@ -231,16 +234,27 @@ export default function ChatInterface() {
         `&thinking=${thinking}` +
         (imageUrl ? `&image_url=${encodeURIComponent(imageUrl)}` : '')
 
+      const { path, method = 'GET', body } = request || { path: streamUrl }
+
       await fetchEventSource(
-        resolveApiUrl(streamUrl),
+        resolveApiUrl(path),
         {
-          method: 'GET',
+          method,
           headers: {
             Authorization: `Bearer ${getToken()}`,
+            ...(body ? { 'Content-Type': 'application/json' } : {}),
           },
+          body,
           signal: controller.signal,
+          // 默认切到别的标签页时会断开、切回来再重新请求一次，导致同一条消息被重复发送 / 重复续写
+          openWhenHidden: true,
           onmessage(event) {
             if (controller.signal.aborted || !event.data) return
+            // 续写时后端出错会推一段「[错误]」开头的文字：不拼进原来的回复，单独提示
+            if (prefix && event.data.startsWith('[错误]')) {
+              setContinueError(event.data)
+              return
+            }
             if (firstTokenAt === null) firstTokenAt = performance.now()
             aiResponse += event.data
             setMessages((prev) => {
@@ -248,7 +262,7 @@ export default function ChatInterface() {
               updated[aiMessageIndex] = {
                 ...updated[aiMessageIndex],
                 role: 'assistant',
-                content: aiResponse,
+                content: prefix + aiResponse,
               }
               return updated
             })
@@ -260,12 +274,14 @@ export default function ChatInterface() {
               throw err
             }
             console.error('Stream error:', err)
+            // 续写失败时保留原来的回复（加上已经收到的部分），只给出提示，不能把原回复覆盖掉
+            if (prefix) setContinueError('续写失败，请重试')
             setMessages((prev) => {
               const updated = [...prev]
               updated[aiMessageIndex] = {
                 ...updated[aiMessageIndex],
                 role: 'assistant',
-                content: '[错误] 无法获取 AI 回复，请重试',
+                content: prefix ? prefix + aiResponse : '[错误] 无法获取 AI 回复，请重试',
               }
               return updated
             })
@@ -280,12 +296,13 @@ export default function ChatInterface() {
         return
       }
       console.error('Send message error:', error)
+      if (prefix) setContinueError('续写失败，请检查网络后重试')
       setMessages((prev) => {
         const updated = [...prev]
         updated[aiMessageIndex] = {
           ...updated[aiMessageIndex],
           role: 'assistant',
-          content: '[错误] 网络连接失败',
+          content: prefix ? prefix + aiResponse : '[错误] 网络连接失败',
         }
         return updated
       })
@@ -398,6 +415,18 @@ export default function ChatInterface() {
     }
   }
 
+  // 续写：不发新消息，让角色接着最后一条回复往下写，新内容追加到这条消息末尾（后端同样追加保存）
+  const handleContinue = async () => {
+    if (!canContinue) return
+    const lastIndex = messages.length - 1
+    setContinueError('')
+    setIsLoading(true)
+    await streamAssistantReply('', null, lastIndex, {
+      request: continueReply(conversationId, allowEmoji),
+      prefix: messages[lastIndex].content,
+    })
+  }
+
   // 处理回车发送
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -472,6 +501,8 @@ export default function ChatInterface() {
   const lastMessage = messages[messages.length - 1]
   const canRegenerate =
     !isLoading && !!conversationId && lastMessage?.role === 'assistant' && !!lastMessage.content
+  // 「续」同样要求最后一条是已有内容的 AI 回复（后端也会校验，不满足返回 400）
+  const canContinue = canRegenerate
 
   return (
     <ChatView
@@ -486,6 +517,7 @@ export default function ChatInterface() {
       isUploadingImage={isUploadingImage}
       imageUploadError={imageUploadError}
       clearError={clearError}
+      continueError={continueError}
       deleteError={deleteError}
       isCharacterModalOpen={isCharacterModalOpen}
       editingCharacter={editingCharacter}
@@ -516,6 +548,8 @@ export default function ChatInterface() {
       isStreaming={isStreaming}
       onStop={handleStop}
       canRegenerate={canRegenerate}
+      canContinue={canContinue}
+      onContinue={handleContinue}
       onExport={handleExport}
       lastStats={lastStats}
       isSidebarOpen={isSidebarOpen}

@@ -55,6 +55,13 @@ class RegenerateRequest(BaseModel):
     allow_emoji: bool = Field(default=True, description="是否允许 AI 回复中包含表情符号，默认允许")
 
 
+class ContinueRequest(BaseModel):
+    """续写请求 Schema：让角色接着最后一条回复继续往下写"""
+
+    conversation_id: int = Field(..., gt=0, description="要续写的会话 ID")
+    allow_emoji: bool = Field(default=True, description="是否允许 AI 回复中包含表情符号，默认允许")
+
+
 class ClearHistoryResponse(BaseModel):
     """清空聊天历史的响应 Schema"""
 

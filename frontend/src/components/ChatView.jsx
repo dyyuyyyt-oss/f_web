@@ -240,6 +240,10 @@ function MessageList({ messages, selectedCharacter, isLoading, messagesEndRef })
               ) : (
                 msg.content && <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
               )}
+              {/* 早期流式回复落库为空的遗留数据：给个说明，免得看起来像界面坏了 */}
+              {!isUser && !msg.content && !msg.image_url && !isGenerating && (
+                <p className="text-sm text-desk-text-faint">（这条回复当时没有保存下来）</p>
+              )}
               {isGenerating && (
                 <span aria-hidden="true" className="inline-block animate-cursor-blink text-desk-text">
                   ▍
@@ -278,6 +282,7 @@ export default function ChatView({
   isUploadingImage,
   imageUploadError,
   clearError,
+  continueError,
   deleteError,
   isCharacterModalOpen,
   editingCharacter,
@@ -308,6 +313,8 @@ export default function ChatView({
   isStreaming,
   onStop,
   canRegenerate,
+  canContinue,
+  onContinue,
   onExport,
   lastStats,
   isSidebarOpen,
@@ -325,7 +332,7 @@ export default function ChatView({
 
   // 发送按钮只在生成中变灰禁用（和桌面版一致）；输入为空时点击由 ChatInterface 里原有的判断忽略
   const canSend = !isLoading && !!selectedCharacterId
-  const errors = [clearError, deleteError, imageUploadError].filter(Boolean)
+  const errors = [clearError, continueError, deleteError, imageUploadError].filter(Boolean)
 
   return (
     <div className="flex h-full bg-desk-panel text-desk-text">
@@ -345,7 +352,7 @@ export default function ChatView({
 
       <section className="flex min-w-0 flex-1 flex-col">
         {/* 顶栏 56px：头像（点击展开 / 收起角色栏）+ 角色名 + 单字按钮 + 退出 */}
-        <header className="flex h-14 shrink-0 items-center gap-1.5 border-b border-desk-divider bg-desk-header px-3 sm:gap-2 sm:px-4">
+        <header className="flex h-14 shrink-0 items-center gap-1 border-b border-desk-divider bg-desk-header px-2 sm:gap-2 sm:px-4">
           <button
             type="button"
             onClick={onToggleSidebar}
@@ -363,12 +370,13 @@ export default function ChatView({
           <IconButton label="思考" title={thinking ? '深度思考：开（点击关闭）' : '深度思考：关（点击开启）'} onClick={onToggleThinking} active={thinking} />
           <IconButton label="图" title="发送图片" onClick={onPickImage} disabled={isLoading || isUploadingImage || !selectedCharacterId} />
           <IconButton label="再" title="重新生成上一条回复" onClick={onRegenerate} disabled={!canRegenerate} />
+          <IconButton label="续" title="接着上一条回复继续写" onClick={onContinue} disabled={!canContinue} />
           <IconButton label="存" title="导出为 Markdown" onClick={onExport} disabled={messages.length === 0} />
           <IconButton label="清" title="清空对话" onClick={onClearMessages} disabled={isLoading} />
           <button
             type="button"
             onClick={onLogout}
-            className="ml-0.5 shrink-0 rounded-btn px-1.5 py-1 text-[13px] font-semibold text-desk-accent transition-colors hover:text-desk-accent-hover sm:ml-1"
+            className="shrink-0 rounded-btn px-1 py-1 text-[13px] font-semibold text-desk-accent transition-colors hover:text-desk-accent-hover sm:ml-1 sm:px-1.5"
           >
             退出
           </button>

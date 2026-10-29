@@ -12,6 +12,7 @@ from app.schemas.chat import (
     ChatMessageInput,
     ChatSendResponse,
     RegenerateRequest,
+    ContinueRequest,
     ClearHistoryResponse,
     ChatHistoryResponse,
 )
@@ -268,6 +269,56 @@ async def regenerate_message(
         reply=reply,
         character_id=conversation.character_id,
         conversation_id=conversation.id,
+    )
+
+
+@router.post(
+    "/continue",
+    tags=["聊天"],
+    summary="续写（SSE）",
+    description="让角色接着最后一条回复继续往下写：不新增任何消息，新内容追加到最后一条 assistant 消息上。"
+    "返回格式与 /api/chat/stream 相同（SSE，每个事件是一段文字）。",
+    responses={
+        200: {"description": "SSE 流，逐段返回续写内容"},
+        400: {"description": "最后一条不是角色的回复（或内容为空），无法续写"},
+        403: {"description": "该会话不属于当前登录用户"},
+        404: {"description": "会话不存在"},
+    },
+)
+async def continue_message(
+    request: ContinueRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """续写最后一条 AI 回复（SSE）。所有校验都在开始流式之前做完，不满足条件直接返回 4xx"""
+    conversation = db.query(Conversation).filter_by(id=request.conversation_id).first()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    if conversation.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作该会话")
+
+    last_message = (
+        db.query(Message)
+        .filter_by(conversation_id=conversation.id)
+        .order_by(Message.created_at.desc(), Message.id.desc())
+        .first()
+    )
+    if not last_message or last_message.role != "assistant" or not last_message.content:
+        raise HTTPException(status_code=400, detail="最后一条不是角色的回复，无法续写")
+
+    chat_service = ChatService()
+
+    async def generate():
+        async for chunk in chat_service.continue_reply(
+            conversation_id=conversation.id,
+            allow_emoji=request.allow_emoji,
+        ):
+            yield sse_data(chunk)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
 
 

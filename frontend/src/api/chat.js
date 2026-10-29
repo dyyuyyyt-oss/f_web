@@ -36,6 +36,22 @@ export async function regenerateReply(conversationId, allowEmoji = true, thinkin
 }
 
 /**
+ * 续写最后一条 AI 回复（SSE 接口）
+ * 返回的是请求描述而不是结果：流式响应由 ChatInterface 里统一的 SSE 消费逻辑处理，
+ * 和发消息用的是同一套代码（逐段追加、停止、出错提示）
+ * @param {number} conversationId 会话 ID
+ * @param {boolean} allowEmoji 是否允许 AI 回复中包含表情符号
+ * @returns {{ path: string, method: string, body: string }}
+ */
+export function continueReply(conversationId, allowEmoji = true) {
+  return {
+    path: '/api/chat/continue',
+    method: 'POST',
+    body: JSON.stringify({ conversation_id: conversationId, allow_emoji: allowEmoji }),
+  }
+}
+
+/**
  * 清空指定会话的聊天历史（后端真正删除消息记录，不只是清空前端显示）
  * @param {number} conversationId 会话 ID
  * @returns {Promise<{deleted: number}>}
