@@ -16,6 +16,7 @@ from app.schemas.chat import (
     ChatHistoryResponse,
 )
 from app.services.chat_service import ChatService
+from app.utils.sse import sse_data
 from app.models import Character, Conversation, Message
 from app.api.deps import get_current_user
 from app.models.user import User
@@ -71,7 +72,7 @@ async def stream_chat(
                 allow_emoji=allow_emoji,
                 image_url=image_url,
             ):
-                yield f"data: {chunk}\n\n"
+                yield sse_data(chunk)
 
         return StreamingResponse(
             generate(),

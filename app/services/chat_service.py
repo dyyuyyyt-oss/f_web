@@ -189,6 +189,10 @@ class ChatService:
             缓冲后的文本段落（包含完整词组或到达缓冲区大小）
         """
         db = self.get_db()
+        # 用户中途点「停止」（客户端断开）时，要把已经生成的部分存下来，这几个变量记录进度
+        user_msg_saved = False
+        assistant_saved = False
+        generated = ""
 
         try:
             # 角色信息在每次对话中都需要用来构建系统提示词，不只是新建会话时才查
@@ -216,6 +220,7 @@ class ChatService:
             )
             db.add(user_msg_db)
             db.commit()
+            user_msg_saved = True
 
             # 令牌缓冲相关变量
             buffer = ""
@@ -227,6 +232,7 @@ class ChatService:
                 logger.info("Using mock AI response")
                 async for chunk in self.mock_stream_response():
                     buffer += chunk
+                    generated += chunk
                     # 检查是否应该发送缓冲区
                     if (
                         len(buffer) >= buffer_size
@@ -274,6 +280,7 @@ class ChatService:
                 async for chunk in client.stream_chat(messages):
                     buffer += chunk
                     mock_response += chunk
+                    generated += chunk
                     # 检查是否应该发送缓冲区
                     if (
                         len(buffer) >= buffer_size
@@ -287,14 +294,27 @@ class ChatService:
                 yield buffer
 
             # 保存 AI 回复到数据库
+            # （原来这里写的是 mock_response if settings.use_mock_ai else ""，
+            #  用真实模型时存进去的是空字符串，刷新后角色的回复全都不见了）
             ai_msg_db = Message(
                 conversation_id=conversation_id,
                 role="assistant",
-                content=mock_response if settings.use_mock_ai else "",
+                content=mock_response,
             )
             db.add(ai_msg_db)
             db.commit()
+            assistant_saved = True
 
+        except (GeneratorExit, asyncio.CancelledError):
+            # 客户端中途断开（前端点了「停止」或关掉页面）：已经生成的部分照样存下来，刷新后不会丢。
+            # 这里只能做同步的数据库操作，不能再 yield
+            if user_msg_saved and not assistant_saved and generated:
+                try:
+                    db.add(Message(conversation_id=conversation_id, role="assistant", content=generated))
+                    db.commit()
+                except Exception as save_error:
+                    logger.error(f"Error saving partial reply after disconnect: {save_error}")
+            raise
         except Exception as e:
             logger.error(f"Error in stream_chat: {e}")
             yield f"[错误] 发生异常: {str(e)}"
