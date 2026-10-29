@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { getWakeStatus, subscribeWakeStatus, wakeBackend } from '../api/wake'
 
 // 后端已经醒着时 ping 通常几百毫秒就返回，这段时间内不显示提示，避免热启动时闪一下
@@ -6,15 +6,16 @@ const SHOW_DELAY_MS = 800
 
 // 全局唤醒提示：Render 冷启动期间在页面顶部显示"服务正在唤醒"，不挡住页面，用户可以照常输入
 export default function WakeBanner() {
-  const [status, setStatus] = useState(getWakeStatus)
+  // 用 useSyncExternalStore 订阅唤醒状态：订阅时会同步一次当前值。
+  // 不能用 useState + useEffect 订阅——已登录用户打开页面时，AuthContext / 聊天页的请求
+  // 会在本组件订阅之前就把状态改成 waking，那样会错过这次变化，提示条永远不出现
+  const status = useSyncExternalStore(subscribeWakeStatus, getWakeStatus)
   const [visible, setVisible] = useState(false)
   const [elapsed, setElapsed] = useState(0)
 
   useEffect(() => {
-    const unsubscribe = subscribeWakeStatus(setStatus)
     // 页面一打开就开始唤醒：用户还在输入账号密码时，后端已经在启动了
     wakeBackend()
-    return unsubscribe
   }, [])
 
   useEffect(() => {
