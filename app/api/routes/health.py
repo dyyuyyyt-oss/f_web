@@ -51,3 +51,14 @@ def health_check():
         "app_version": settings.app_version,
         **db_status,
     }
+
+
+@router.get(
+    f"{settings.api_prefix}/health",
+    tags=["健康检查"],
+    summary="轻量存活检查",
+    description="不查数据库，只表示后端进程已经在运行。供前端判断 Render 实例是否已唤醒、外部监控定时保活使用；"
+    "需要看数据库状态请用 /health。",
+)
+def liveness_check():
+    return {"ok": True}

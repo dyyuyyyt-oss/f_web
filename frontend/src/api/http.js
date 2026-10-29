@@ -1,5 +1,6 @@
 // 登录态存取 + 带登录态的请求封装，供其他 api 模块统一使用
 import { resolveApiUrl } from './config'
+import { wakeBackend, markBackendAlive } from './wake'
 
 const TOKEN_KEY = 'confur_auth_token'
 const USER_KEY = 'confur_auth_user'
@@ -79,10 +80,13 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
  * - 网络错误、超时、502/503/504 时按 RETRY_DELAYS_MS 重试 retries 次
  * - 调用方传入的 signal 被中止时原样抛出 AbortError，不重试
  * - 最终仍失败则抛出 RequestError（kind 为 timeout 或 network）
+ * - 发请求前先 await wakeBackend()：后端疑似休眠时先等它唤醒（最多 60 秒），期间页面显示唤醒提示
  */
 export async function fetchWithRetry(url, options = {}, { timeoutMs = DEFAULT_TIMEOUT_MS, retries = 0 } = {}) {
   const callerSignal = options.signal
   let lastError = null
+
+  await wakeBackend()
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     if (attempt > 0) {
@@ -105,6 +109,7 @@ export async function fetchWithRetry(url, options = {}, { timeoutMs = DEFAULT_TI
       if (RETRYABLE_STATUS.has(response.status) && attempt < retries) {
         continue
       }
+      markBackendAlive()
       return response
     } catch (err) {
       if (callerSignal?.aborted) throw err
