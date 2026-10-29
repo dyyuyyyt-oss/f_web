@@ -152,7 +152,8 @@ export async function authFetch(path, options = {}, { timeoutMs, retries } = {})
 
   if (response.status === 401 && window.location.pathname !== '/login') {
     clearAuth()
-    window.location.href = '/login'
+    const next = window.location.pathname + window.location.search
+    window.location.href = `/login?next=${encodeURIComponent(next)}`
   }
 
   return response

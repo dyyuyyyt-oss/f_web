@@ -1,7 +1,15 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import RegisterModal from '../components/RegisterModal'
+
+// 登录后要回到的页面：只接受站内路径（以单个 / 开头），防止 ?next= 被拿来跳到外部网站；
+// 默认回功能大厅
+function safeNextPath(search) {
+  const next = new URLSearchParams(search).get('next')
+  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/login')) return '/'
+  return next
+}
 
 export default function LoginPage() {
   const [username, setUsername] = useState('')
@@ -12,6 +20,7 @@ export default function LoginPage() {
   const [showForgotPassword, setShowForgotPassword] = useState(false)
   const { login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -24,8 +33,8 @@ export default function LoginPage() {
 
     setIsSubmitting(true)
     try {
-      const user = await login(username.trim(), password)
-      navigate(user.role === 'admin' ? '/admin' : '/', { replace: true })
+      await login(username.trim(), password)
+      navigate(safeNextPath(location.search), { replace: true })
     } catch (err) {
       setError(err.message || '登录失败')
     } finally {

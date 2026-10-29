@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
   getUsers,
@@ -140,12 +140,20 @@ export default function AdminDashboard() {
           <h1 className="text-2xl font-bold whitespace-nowrap">征</h1>
           <p className="text-blue-100 text-sm mt-1">管理后台 · {user?.username}</p>
         </div>
-        <button
-          onClick={handleLogout}
-          className="px-4 py-2 text-sm bg-white/20 rounded-lg hover:bg-white/30 transition-colors"
-        >
-          退出登录
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/"
+            className="px-4 py-2 text-sm bg-white/20 rounded-lg hover:bg-white/30 transition-colors"
+          >
+            返回大厅
+          </Link>
+          <button
+            onClick={handleLogout}
+            className="px-4 py-2 text-sm bg-white/20 rounded-lg hover:bg-white/30 transition-colors"
+          >
+            退出登录
+          </button>
+        </div>
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-8 space-y-8">
