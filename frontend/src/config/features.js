@@ -6,6 +6,15 @@
 // - roles：哪些角色能看到这张卡（user / admin）
 export const FEATURES = [
   {
+    id: 'life',
+    title: '生活面板',
+    desc: '她的健康、记忆星图与视频通话',
+    icon: '🐋',
+    to: '/life',
+    status: 'ready',
+    roles: ['user', 'admin'],
+  },
+  {
     id: 'chat',
     title: 'AI 对话',
     desc: '和丝柯克聊天，支持图片识别',
