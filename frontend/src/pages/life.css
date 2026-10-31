@@ -75,7 +75,8 @@
   background:radial-gradient(circle at 50% 35%, #cfe0ff, #5d8fd6 55%, #1a2b50 100%);
   border:2px solid rgba(190,215,255,.35);box-shadow:0 0 40px rgba(110,170,255,.35);
   display:grid;place-items:center;font-size:46px}
-.life-call .portrait::after{content:"🐋";filter:drop-shadow(0 4px 10px rgba(0,0,0,.4))}
+.life-call .portrait{padding:0;overflow:hidden}
+.life-call .portrait svg{display:block}
 .life-call .meta{position:absolute;left:0;right:0;top:calc(50% + 92px);text-align:center;z-index:2}
 .life-call .meta b{display:block;font-size:15px;letter-spacing:3px;color:#eaf2ff}
 .life-call .meta span{font-size:11px;color:#93a8cf;letter-spacing:1px}
@@ -130,3 +131,14 @@
 @media (min-width:1500px){
   .life-main{grid-template-columns:1.6fr .9fr 1.1fr;max-width:1680px;margin:0 auto;width:100%}
 }
+
+/* 聊天记录 */
+.life-log{position:absolute;left:16px;right:16px;bottom:70px;max-height:36%;overflow-y:auto;
+  display:flex;flex-direction:column;gap:6px;z-index:2;padding-right:2px}
+.life-bubble{max-width:82%;padding:7px 11px;border-radius:12px;font-size:12.5px;line-height:1.5;
+  word-break:break-word;backdrop-filter:blur(6px)}
+.life-bubble.me{align-self:flex-end;background:rgba(63,127,214,.85);color:#fff;border-bottom-right-radius:4px}
+.life-bubble.bot{align-self:flex-start;background:rgba(18,26,44,.9);border:1px solid var(--life-line);
+  color:#dbe6ff;border-bottom-left-radius:4px}
+.life-btn.on{background:rgba(94,200,242,.18);border-color:rgba(94,200,242,.6);color:#bfe8ff}
+@media (min-width:960px){ .life-log{bottom:66px;max-height:42%} }

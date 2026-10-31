@@ -13,6 +13,8 @@ export default function LifePage() {
   const [health, setHealth] = useState(null)
   const [stats, setStats] = useState({ memories: 0, episodes: 0, days: 0, relations: 0 })
   const [say, setSay] = useState('…')
+  const [msgs, setMsgs] = useState([])
+  const [speakOn, setSpeakOn] = useState(false)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
 
@@ -187,6 +189,7 @@ export default function LifePage() {
     setDraft('')
     setSending(true)
     setSay('…')
+    setMsgs((m) => m.concat([{ role: 'user', text }]).slice(-40))
     try {
       const r = await authFetch('/api/life/chat', {
         method: 'POST',
@@ -194,7 +197,9 @@ export default function LifePage() {
         body: JSON.stringify({ text }),
       })
       const d = await r.json()
-      setSay(d.ok ? d.reply : '（信号不好）' + (d.error || ''))
+      const reply = d.ok ? d.reply : '（信号不好）' + (d.error || '')
+      setSay(reply)
+      setMsgs((m) => m.concat([{ role: 'bot', text: reply }]).slice(-40))
     } catch (e) {
       setSay('（断线了）')
     } finally {
@@ -203,12 +208,30 @@ export default function LifePage() {
     }
   }
 
+  useEffect(() => {
+    if (!speakOn || !say || say === '…' || typeof window === 'undefined' || !window.speechSynthesis) return
+    try {
+      window.speechSynthesis.cancel()
+      const u = new SpeechSynthesisUtterance(say)
+      u.lang = 'zh-CN'
+      u.rate = 1.02
+      u.pitch = 1.15
+      window.speechSynthesis.speak(u)
+    } catch (e) { /* 忽略 */ }
+  }, [say, speakOn])
+
   const feed = async () => {
     try { await authFetch('/api/life/feed', { method: 'POST' }); loadHealth() } catch (e) { /* 忽略 */ }
   }
 
   const hungerPct = health ? Math.min(1, health.hunger.value / 100) : 0
   const hungerColor = hungerPct > 0.75 ? '#f2695c' : (hungerPct > 0.45 ? '#f6c04a' : '#5ec8f2')
+
+  const logRef = useRef(null)
+  useEffect(() => {
+    const el = logRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [msgs, sending])
 
   return (
     <div className="life-root">
@@ -301,7 +324,35 @@ export default function LifePage() {
               <div className="life-call">
                 <div className="aur" />
                 <div className="tag"><i />视频通话中</div>
-                <div className="portrait" />
+                <div className="portrait">
+                  <svg viewBox="0 0 120 120" width="100%" height="100%" aria-hidden="true">
+                    <defs>
+                      <linearGradient id="hair" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stopColor="#8fd0f5" />
+                        <stop offset="1" stopColor="#3f74c8" />
+                      </linearGradient>
+                      <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stopColor="#fdf6f2" />
+                        <stop offset="1" stopColor="#e8d3cc" />
+                      </linearGradient>
+                      <linearGradient id="dress" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stopColor="#26365f" />
+                        <stop offset="1" stopColor="#101a33" />
+                      </linearGradient>
+                    </defs>
+                    <ellipse cx="60" cy="52" rx="34" ry="36" fill="url(#hair)" />
+                    <path d="M30 52 q-8 22 4 34 q-16 -8 -14 -34z" fill="#3f74c8" opacity="0.9" />
+                    <path d="M90 52 q8 22 -4 34 q16 -8 14 -34z" fill="#3f74c8" opacity="0.9" />
+                    <ellipse cx="60" cy="58" rx="22" ry="24" fill="url(#skin)" />
+                    <path d="M38 46 q22 -20 44 0 q-4 -20 -22 -20 q-18 0 -22 20z" fill="#8fd0f5" />
+                    <circle cx="52" cy="60" r="2.4" fill="#2b3a5c" />
+                    <circle cx="68" cy="60" r="2.4" fill="#2b3a5c" />
+                    <path d="M55 70 q5 4 10 0" stroke="#c98b8b" strokeWidth="1.6" fill="none" strokeLinecap="round" />
+                    <path d="M34 84 q26 -12 52 0 l6 30 q-32 10 -64 0z" fill="url(#dress)" />
+                    <path d="M46 84 q14 8 28 0" stroke="#4a6ea8" strokeWidth="2" fill="none" />
+                    <circle cx="60" cy="92" r="3" fill="#f6c04a" />
+                  </svg>
+                </div>
                 <div className="meta"><b>大肥鱼</b><span>在线 · 信号良好</span></div>
                 <div className="life-wave">
                   {Array.from({ length: 22 }).map((_, i) => (
@@ -309,10 +360,18 @@ export default function LifePage() {
                   ))}
                 </div>
               </div>
-              <div className="life-sub"><span className="who">大肥鱼</span>{say}</div>
+              <div className="life-log" ref={logRef}>
+                {msgs.map((m, i) => (
+                  <div key={i} className={'life-bubble ' + (m.role === 'user' ? 'me' : 'bot')}>{m.text}</div>
+                ))}
+              </div>
+              <div className="life-sub">
+                <span className="who">大肥鱼</span>{sending ? '正在想说…' : say}
+              </div>
             </div>
             <div className="life-dock">
-              <button className="life-btn" onClick={() => setSay('语音还在路上，先打字吧（吐个泡泡）')}>🎙</button>
+              <button className={'life-btn' + (speakOn ? ' on' : '')} title="朗读回复"
+                onClick={() => setSpeakOn((v) => !v)}>{speakOn ? '🔊' : '🔇'}</button>
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
