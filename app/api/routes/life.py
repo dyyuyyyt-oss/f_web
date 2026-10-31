@@ -308,3 +308,48 @@ async def life_chat(payload: ChatIn, user: User = Depends(get_current_user)):
         return {"ok": True, "reply": reply}
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
+
+
+# ---------------- 机器人可调参数（网页里改，机器人轮询生效） ----------------
+DEFAULT_PET = {"voice": "zh-CN-XiaoruiNeural", "prob": 0.18, "delay_min": 2.5, "delay_max": 6.5}
+
+
+def _pet_table(db: Session) -> None:
+    db.execute(text("CREATE TABLE IF NOT EXISTS pet_settings (k VARCHAR(64) PRIMARY KEY, v TEXT)"))
+    db.commit()
+
+
+@router.get("/life/pet-settings", summary="机器人声线等参数（机器人轮询用，无需登录）")
+def get_pet_settings(db: Session = Depends(get_db)):
+    try:
+        _pet_table(db)
+        rows = db.execute(text("SELECT k, v FROM pet_settings")).fetchall()
+    except Exception:
+        rows = []
+    data = dict(DEFAULT_PET)
+    for r in rows:
+        try:
+            data[r[0]] = json.loads(r[1])
+        except Exception:
+            data[r[0]] = r[1]
+    return data
+
+
+class PetIn(BaseModel):
+    voice: str | None = None
+    prob: float | None = None
+    delay_min: float | None = None
+    delay_max: float | None = None
+
+
+@router.post("/life/pet-settings", summary="修改机器人声线等参数")
+def set_pet_settings(payload: PetIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _pet_table(db)
+    patch = {k: v for k, v in payload.model_dump().items() if v is not None}
+    for k, v in patch.items():
+        db.execute(text(
+            "INSERT INTO pet_settings(k, v) VALUES(:k, :v) "
+            "ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v"
+        ), {"k": k, "v": json.dumps(v)})
+    db.commit()
+    return {"ok": True, "saved": patch}

@@ -271,6 +271,16 @@ export default function LifePage() {
     rec.start()
   }
 
+  const saveVoice = async (v) => {
+    try {
+      await authFetch('/api/life/pet-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voice: v }),
+      })
+    } catch (e) { /* 忽略 */ }
+  }
+
   const feed = async () => {
     try { await authFetch('/api/life/feed', { method: 'POST' }); loadHealth() } catch (e) { /* 忽略 */ }
   }
@@ -429,8 +439,8 @@ export default function LifePage() {
               >{listening ? '●' : '🎤'}</button>
               <button className={'life-btn' + (speakOn ? ' on' : '')} title="朗读回复"
                 onClick={() => setSpeakOn((v) => !v)}>{speakOn ? '🔊' : '🔇'}</button>
-              <select className="life-voice" value={voice} onChange={(e) => setVoice(e.target.value)}
-                title="选择声线">
+              <select className="life-voice" value={voice} onChange={(e) => { setVoice(e.target.value); saveVoice(e.target.value) }}
+                title="选择声线（会自动同步给 QQ 机器人）">
                 {(voices.length ? voices : [{ id: 'zh-CN-XiaoyiNeural', name: '晓伊' }]).map((v) => (
                   <option key={v.id} value={v.id}>{v.name}</option>
                 ))}
