@@ -167,8 +167,8 @@ class ChatIn(BaseModel):
 
 
 @router.post("/life/chat", summary="生活面板 · 皮套对话")
-def life_chat(payload: ChatIn, user: User = Depends(get_current_user)):
-    from openai import OpenAI
+async def life_chat(payload: ChatIn, user: User = Depends(get_current_user)):
+    from app.services.ai_client import AIClient
 
     st = load_state()
     st["dopamine"] = min(100, int(st["dopamine"]) + 3)
@@ -182,17 +182,19 @@ def life_chat(payload: ChatIn, user: User = Depends(get_current_user)):
         "不自称 AI，不解释设定，不列点。一次回复 1~3 句，不超过 80 字。"
     )
     try:
-        client = OpenAI(api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url)
-        resp = client.chat.completions.create(
-            model=settings.deepseek_model,
-            messages=[{"role": "system", "content": persona},
-                      {"role": "user", "content": payload.text}],
+        client = AIClient(provider=settings.ai_provider)
+        result = await client.chat(
+            messages=[
+                {"role": "system", "content": persona},
+                {"role": "user", "content": payload.text},
+            ],
             temperature=1.0,
             max_tokens=900,
         )
-        content = (resp.choices[0].message.content or "").strip()
-        if not content:
+        reply = result.get("content", "") if isinstance(result, dict) else str(result or "")
+        reply = reply.strip()
+        if not reply:
             raise RuntimeError("模型返回空内容")
-        return {"ok": True, "reply": content}
+        return {"ok": True, "reply": reply}
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
