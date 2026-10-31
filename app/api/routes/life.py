@@ -84,30 +84,140 @@ def deepseek_balance():
     return _balance["value"]
 
 
+VOICES = [
+    {"id": "zh-CN-XiaoyiNeural", "name": "晓伊", "desc": "少女，清亮"},
+    {"id": "zh-CN-XiaoxiaoNeural", "name": "晓晓", "desc": "温柔，播音"},
+    {"id": "zh-CN-XiaobeiNeural", "name": "晓北", "desc": "活泼，东北"},
+    {"id": "zh-CN-XiaomoNeural", "name": "晓墨", "desc": "沉静，御姐"},
+    {"id": "zh-CN-XiaohanNeural", "name": "晓涵", "desc": "温婉，故事感"},
+    {"id": "zh-CN-YunxiNeural", "name": "云希", "desc": "清朗少年"},
+    {"id": "zh-TW-HsiaoChenNeural", "name": "曉臻", "desc": "台湾腔"},
+]
+
+
+def _clamp(v, lo=0, hi=100):
+    return int(max(lo, min(hi, v)))
+
+
+def _metrics(db: Session) -> dict:
+    """全部从 message 表真实统计，没有任何随机数。"""
+    now = time.time()
+    rows = db.execute(text(
+        "SELECT content, role, created_at FROM message ORDER BY id DESC LIMIT 500"
+    )).fetchall()
+
+    def ts(v):
+        from datetime import datetime
+        try:
+            if hasattr(v, "timestamp"):
+                return v.timestamp()
+            if isinstance(v, str):
+                return datetime.fromisoformat(v.replace("Z", "")).timestamp()
+            return float(v)
+        except Exception:
+            return 0.0
+
+    stamps = [ts(r[2]) for r in rows if r[2] is not None]
+    last_ts = max(stamps) if stamps else 0
+    hours_since = (now - last_ts) / 3600 if last_ts else 999
+
+    one_day = now - 86400
+    today = sum(1 for s in stamps if s >= one_day)
+    week = [s for s in stamps if s >= now - 7 * 86400]
+    avg7 = len(week) / 7.0
+
+    days = sorted({time.strftime("%Y-%m-%d", time.localtime(s)) for s in stamps}, reverse=True)
+    streak = 0
+    if days:
+        from datetime import date, timedelta
+        cur = date.today()
+        dset = set(days)
+        while cur.isoformat() in dset:
+            streak += 1
+            cur -= timedelta(days=1)
+    days_since = 0 if not last_ts else int((now - last_ts) // 86400)
+
+    user_msgs = [r for r in rows if r[1] == "user"]
+    saw = (user_msgs[0][0] or "")[:18] if user_msgs else "还没聊过"
+
+    return {
+        "total": len(rows),
+        "today": today,
+        "avg7": round(avg7, 1),
+        "hours_since": round(hours_since, 1),
+        "streak": streak,
+        "days_since": days_since,
+        "saw": saw,
+    }
+
+
 @router.get("/life/health", summary="生活面板 · 健康状态")
 def life_health(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    st = load_state()
-    hours = max(0.0, (time.time() - float(st["last_feed"])) / 3600.0)
-    hunger = int(min(100, 6 + hours * 4.5))
-    labels = [(10, "饱饱的"), (30, "还行"), (50, "有点饿"), (70, "饿了"), (88, "饿扁了"), (101, "要饿死了")]
+    m = _metrics(db)
+
+    hunger = _clamp(5 + m["hours_since"] * 3.2)
+    labels = [(12, "饱饱的"), (32, "还行"), (52, "有点饿"), (72, "饿了"), (90, "饿扁了"), (101, "要饿死了")]
     label = next(v for k, v in labels if hunger < k)
+
+    dopamine = _clamp(18 + 55 * min(1.0, m["today"] / max(1.0, m["avg7"])) + m["today"] * 2)
+    oxytocin = _clamp(8 + m["streak"] * 13)
+    cortisol = _clamp(4 + (0 if m["hours_since"] < 6 else m["hours_since"] - 6) * 2.6)
+    serotonin = _clamp(10 + m["avg7"] * 9)
+    nor = _clamp(92 - m["hours_since"] * 9 if m["hours_since"] < 10 else 6)
 
     bal = deepseek_balance()
     return {
-        "hunger": {"value": hunger, "label": label,
-                   "note": "正常：喂食会让她恢复活力"},
-        "wallet": {"balance": bal,
-                   "note": "饭钱还够，安心" if (bal or 0) >= 10 else "低于 10 元会触发生存压力"},
+        "hunger": {
+            "value": hunger, "label": label,
+            "note": "按「距离上一条消息 %.0f 小时」推算" % m["hours_since"],
+        },
+        "wallet": {
+            "balance": bal,
+            "note": "DeepSeek 余额接口" if bal is not None else "当前走火山方舟，无余额接口",
+        },
         "neuro": [
-            {"name": "多巴胺", "v": st["dopamine"], "color": "#f6c04a"},
-            {"name": "催产素", "v": st["oxytocin"], "color": "#5ec8f2"},
-            {"name": "皮质醇", "v": st["cortisol"], "color": "#f2695c"},
-            {"name": "血清素", "v": st["serotonin"], "color": "#a98bf0"},
-            {"name": "去甲肾上腺素", "v": st["norepinephrine"], "color": "#6fe0a0"},
+            {"name": "多巴胺", "v": dopamine, "color": "#f6c04a", "basis": "今日 %d 条 / 7 日均 %.1f 条" % (m["today"], m["avg7"])},
+            {"name": "催产素", "v": oxytocin, "color": "#5ec8f2", "basis": "连续聊了 %d 天" % m["streak"]},
+            {"name": "皮质醇", "v": cortisol, "color": "#f2695c", "basis": "距上次 %.0f 小时" % m["hours_since"]},
+            {"name": "血清素", "v": serotonin, "color": "#a98bf0", "basis": "7 日均 %.1f 条/天" % m["avg7"]},
+            {"name": "去甲肾上腺素", "v": nor, "color": "#6fe0a0", "basis": "最近 10 小时内是否活跃"},
         ],
-        "status": {"mood": st["mood"]},
-        "saw": st["saw"],
+        "status": {"mood": "平静" if cortisol < 40 else ("有点想你" if cortisol < 75 else "被冷落")},
+        "saw": {"name": m["saw"], "note": "来自最近一条真实消息"},
+        "basis": m,
     }
+
+
+@router.get("/life/voices", summary="生活面板 · 可选声线")
+def life_voices(user: User = Depends(get_current_user)):
+    return {"voices": VOICES}
+
+
+class TtsIn(BaseModel):
+    text: str
+    voice: str = "zh-CN-XiaoyiNeural"
+    rate: str = "+0%"
+    pitch: str = "+0Hz"
+
+
+@router.post("/life/tts", summary="生活面板 · 神经语音合成")
+async def life_tts(payload: TtsIn, user: User = Depends(get_current_user)):
+    import edge_tts
+    from fastapi.responses import Response
+
+    text = (payload.text or "").strip()[:300]
+    if not text:
+        return Response(status_code=400)
+    try:
+        comm = edge_tts.Communicate(text, payload.voice, rate=payload.rate, pitch=payload.pitch)
+        buf = bytearray()
+        async for chunk in comm.stream():
+            if chunk["type"] == "audio":
+                buf.extend(chunk["data"])
+        return Response(content=bytes(buf), media_type="audio/mpeg",
+                        headers={"Cache-Control": "no-store"})
+    except Exception as exc:
+        return Response(content=str(exc)[:200].encode(), status_code=503, media_type="text/plain")
 
 
 @router.post("/life/feed", summary="生活面板 · 喂一口")

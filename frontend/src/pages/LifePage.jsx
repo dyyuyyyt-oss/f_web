@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { authFetch } from '../api/http'
 import './life.css'
 
@@ -15,6 +16,11 @@ export default function LifePage() {
   const [say, setSay] = useState('…')
   const [msgs, setMsgs] = useState([])
   const [speakOn, setSpeakOn] = useState(false)
+  const [voice, setVoice] = useState('zh-CN-XiaoyiNeural')
+  const [voices, setVoices] = useState([])
+  const [listening, setListening] = useState(false)
+  const navigate = useNavigate()
+  const audioRef = useRef(null)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
 
@@ -31,6 +37,18 @@ export default function LifePage() {
       if (!r.ok) return
       setHealth(await r.json())
     } catch (e) { /* 忽略 */ }
+  }, [])
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const r = await authFetch('/api/life/voices')
+        if (r.ok) {
+          const d = await r.json()
+          setVoices(d.voices || [])
+        }
+      } catch (e) { /* 忽略 */ }
+    })()
   }, [])
 
   useEffect(() => {
@@ -209,16 +227,49 @@ export default function LifePage() {
   }
 
   useEffect(() => {
-    if (!speakOn || !say || say === '…' || typeof window === 'undefined' || !window.speechSynthesis) return
-    try {
-      window.speechSynthesis.cancel()
-      const u = new SpeechSynthesisUtterance(say)
-      u.lang = 'zh-CN'
-      u.rate = 1.02
-      u.pitch = 1.15
-      window.speechSynthesis.speak(u)
-    } catch (e) { /* 忽略 */ }
-  }, [say, speakOn])
+    if (!speakOn || !say || say === '…' || sending) return
+    let dead = false
+    ;(async () => {
+      try {
+        const r = await authFetch('/api/life/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: say, voice, rate: '+2%', pitch: '+18Hz' }),
+        })
+        if (!r.ok) throw new Error('tts ' + r.status)
+        const blob = await r.blob()
+        if (dead) return
+        const url = URL.createObjectURL(blob)
+        if (!audioRef.current) audioRef.current = new Audio()
+        audioRef.current.src = url
+        await audioRef.current.play().catch(() => {})
+      } catch (e) {
+        if (typeof window !== 'undefined' && window.speechSynthesis) {
+          const u = new SpeechSynthesisUtterance(say)
+          u.lang = 'zh-CN'
+          window.speechSynthesis.speak(u)
+        }
+      }
+    })()
+    return () => { dead = true }
+  }, [say, speakOn, voice, sending])
+
+  const startVoiceInput = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) { setSay('这个浏览器不支持语音输入，换 Edge/Chrome 试试'); return }
+    const rec = new SR()
+    rec.lang = 'zh-CN'
+    rec.interimResults = false
+    rec.maxAlternatives = 1
+    setListening(true)
+    rec.onresult = (ev) => {
+      const text = ev.results[0][0].transcript
+      setDraft((d) => (d ? d + ' ' : '') + text)
+    }
+    rec.onerror = () => setListening(false)
+    rec.onend = () => setListening(false)
+    rec.start()
+  }
 
   const feed = async () => {
     try { await authFetch('/api/life/feed', { method: 'POST' }); loadHealth() } catch (e) { /* 忽略 */ }
@@ -238,6 +289,7 @@ export default function LifePage() {
       <header className="life-header">
         <span className="dot" /> 大肥鱼
         <span className="sub">{new Date().toTimeString().slice(0, 5)}</span>
+        <button className="life-back" onClick={() => navigate('/')}>← 返回大厅</button>
       </header>
 
       <main className="life-main">
@@ -298,7 +350,7 @@ export default function LifePage() {
               <h3>神经递质 / 激素</h3>
               {(health ? health.neuro : []).map((n) => (
                 <div className="life-bar" key={n.name}>
-                  <div className="name">{n.name}</div>
+                  <div className="name" title={n.basis || ''}>{n.name}</div>
                   <div className="track">
                     <div className="fill" style={{ width: n.v + '%', background: n.color }} />
                   </div>
@@ -370,8 +422,19 @@ export default function LifePage() {
               </div>
             </div>
             <div className="life-dock">
+              <button
+                className={'life-btn' + (listening ? ' on' : '')}
+                title={listening ? '正在听…' : '语音输入'}
+                onClick={startVoiceInput}
+              >{listening ? '●' : '🎤'}</button>
               <button className={'life-btn' + (speakOn ? ' on' : '')} title="朗读回复"
                 onClick={() => setSpeakOn((v) => !v)}>{speakOn ? '🔊' : '🔇'}</button>
+              <select className="life-voice" value={voice} onChange={(e) => setVoice(e.target.value)}
+                title="选择声线">
+                {(voices.length ? voices : [{ id: 'zh-CN-XiaoyiNeural', name: '晓伊' }]).map((v) => (
+                  <option key={v.id} value={v.id}>{v.name}</option>
+                ))}
+              </select>
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
