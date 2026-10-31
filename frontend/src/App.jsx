@@ -39,6 +39,14 @@ function App() {
             }
           />
           <Route
+            path="/life"
+            element={
+              <ProtectedRoute>
+                <LifePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/admin"
             element={
               <ProtectedRoute requireAdmin>
