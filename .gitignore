@@ -160,3 +160,4 @@ f_web/
 
 # 用户上传的图片（头像、聊天图片），避免测试图片被提交到仓库
 uploads/
+life_state.json

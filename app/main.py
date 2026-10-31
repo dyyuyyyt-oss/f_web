@@ -11,7 +11,7 @@ from app.core.config import settings, DEFAULT_SECRET_KEY
 from app.db.session import init_db, close_db
 from app.models import Character, User, Conversation, Message
 from app.db.session import SessionLocal
-from app.api.routes import health, chat, characters, auth, admin, image, upload, groups
+from app.api.routes import health, chat, characters, auth, admin, image, upload, groups, life
 from app.core.security import hash_password
 import logging
 from datetime import datetime
@@ -116,6 +116,7 @@ app.include_router(admin.router, prefix=settings.api_prefix)
 app.include_router(image.router, prefix=settings.api_prefix)
 app.include_router(upload.router, prefix=settings.api_prefix)
 app.include_router(groups.router, prefix=settings.api_prefix)
+app.include_router(life.router, prefix=settings.api_prefix)
 
 
 # ==================== 静态文件（头像、聊天图片等上传文件）====================

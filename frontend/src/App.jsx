@@ -6,6 +6,7 @@ import AdminDashboard from './pages/AdminDashboard'
 import ChatPage from './pages/ChatPage'
 import HomePage from './pages/HomePage'
 import GroupPage from './pages/GroupPage'
+import LifePage from './pages/LifePage'
 
 function App() {
   return (
