@@ -189,10 +189,18 @@ def life_health(db: Session = Depends(get_db), user: User = Depends(get_current_
 
 
 def _pet_chat_table(db: Session) -> None:
-    db.execute(text(
-        "CREATE TABLE IF NOT EXISTS pet_chat ("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT, role VARCHAR(16), content TEXT, created_at VARCHAR(32))"
-    ))
+    """SQLite / Postgres 都能建的自增主键。"""
+    try:
+        dialect = db.bind.dialect.name if db.bind is not None else "sqlite"
+    except Exception:
+        dialect = "sqlite"
+    if dialect == "sqlite":
+        ddl = ("CREATE TABLE IF NOT EXISTS pet_chat ("
+               "id INTEGER PRIMARY KEY AUTOINCREMENT, role VARCHAR(16), content TEXT, created_at VARCHAR(32))")
+    else:
+        ddl = ("CREATE TABLE IF NOT EXISTS pet_chat ("
+               "id BIGSERIAL PRIMARY KEY, role VARCHAR(16), content TEXT, created_at VARCHAR(32))")
+    db.execute(text(ddl))
     db.commit()
 
 
@@ -339,8 +347,8 @@ async def life_chat(payload: ChatIn, db: Session = Depends(get_db), user: User =
         "说话像微信老朋友：短句、口语，偶尔一个括号动作，一次最多一个。\n"
         "不自称 AI，不解释设定，不列点。一次回复 1~3 句，不超过 80 字。"
     )
-    _pet_chat_table(db)
     try:
+        _pet_chat_table(db)
         db.execute(text("INSERT INTO pet_chat(role, content, created_at) VALUES('user', :c, :t)"),
                    {"c": payload.text[:500], "t": time.strftime("%Y-%m-%d %H:%M:%S")})
         db.commit()
