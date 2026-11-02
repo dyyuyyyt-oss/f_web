@@ -188,6 +188,54 @@ def life_health(db: Session = Depends(get_db), user: User = Depends(get_current_
     }
 
 
+def _pet_chat_table(db: Session) -> None:
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS pet_chat ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, role VARCHAR(16), content TEXT, created_at VARCHAR(32))"
+    ))
+    db.commit()
+
+
+def _rebuild_memory_block(db: Session) -> str:
+    """把最近网页对话压成一段，供 QQ 侧注入。"""
+    try:
+        _pet_chat_table(db)
+        rows = db.execute(text(
+            "SELECT role, content FROM pet_chat ORDER BY id DESC LIMIT 12"
+        )).fetchall()
+    except Exception:
+        return ""
+    if not rows:
+        return ""
+    lines = []
+    for role, content in reversed(rows):
+        who = "他" if role == "user" else "我"
+        lines.append("%s：%s" % (who, (content or "")[:60]))
+    block = "（你们在网页上也聊过）\n" + "\n".join(lines)
+    block = block[:600]
+    try:
+        db.execute(text(
+            "INSERT INTO pet_settings(k, v) VALUES('memory_block', :v) "
+            "ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v"
+        ), {"v": json.dumps(block)})
+        db.commit()
+    except Exception:
+        pass
+    return block
+
+
+@router.get("/life/history", summary="大肥鱼 · 网页聊天记录")
+def life_history(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    try:
+        _pet_chat_table(db)
+        rows = db.execute(text(
+            "SELECT role, content FROM pet_chat ORDER BY id DESC LIMIT 40"
+        )).fetchall()
+    except Exception:
+        rows = []
+    return {"messages": [{"role": r[0], "content": r[1]} for r in reversed(rows)]}
+
+
 @router.get("/life/voices", summary="生活面板 · 可选声线")
 def life_voices(user: User = Depends(get_current_user)):
     return {"voices": VOICES}
@@ -277,7 +325,7 @@ class ChatIn(BaseModel):
 
 
 @router.post("/life/chat", summary="生活面板 · 皮套对话")
-async def life_chat(payload: ChatIn, user: User = Depends(get_current_user)):
+async def life_chat(payload: ChatIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     from app.services.ai_client import AIClient
 
     st = load_state()
@@ -291,6 +339,14 @@ async def life_chat(payload: ChatIn, user: User = Depends(get_current_user)):
         "说话像微信老朋友：短句、口语，偶尔一个括号动作，一次最多一个。\n"
         "不自称 AI，不解释设定，不列点。一次回复 1~3 句，不超过 80 字。"
     )
+    _pet_chat_table(db)
+    try:
+        db.execute(text("INSERT INTO pet_chat(role, content, created_at) VALUES('user', :c, :t)"),
+                   {"c": payload.text[:500], "t": time.strftime("%Y-%m-%d %H:%M:%S")})
+        db.commit()
+    except Exception:
+        pass
+
     try:
         client = AIClient(provider=settings.ai_provider)
         result = await client.chat(
@@ -305,6 +361,13 @@ async def life_chat(payload: ChatIn, user: User = Depends(get_current_user)):
         reply = reply.strip()
         if not reply:
             raise RuntimeError("模型返回空内容")
+        try:
+            db.execute(text("INSERT INTO pet_chat(role, content, created_at) VALUES('assistant', :c, :t)"),
+                       {"c": reply[:500], "t": time.strftime("%Y-%m-%d %H:%M:%S")})
+            db.commit()
+            _rebuild_memory_block(db)
+        except Exception:
+            pass
         return {"ok": True, "reply": reply}
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}

@@ -42,6 +42,21 @@ export default function LifePage() {
   useEffect(() => {
     ;(async () => {
       try {
+        const r = await authFetch('/api/life/history')
+        if (r.ok) {
+          const d = await r.json()
+          if (Array.isArray(d.messages) && d.messages.length) {
+            setMsgs(d.messages.slice(-30))
+            setSay(d.messages[d.messages.length - 1].content)
+          }
+        }
+      } catch (e) { /* 忽略 */ }
+    })()
+  }, [])
+
+  useEffect(() => {
+    ;(async () => {
+      try {
         const r = await authFetch('/api/life/voices')
         if (r.ok) {
           const d = await r.json()
