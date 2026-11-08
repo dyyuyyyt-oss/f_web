@@ -767,3 +767,170 @@ def life_react(payload: ReactIn, db: Session = Depends(get_db), user: User = Dep
     st = _react(st, payload.text)
     _save(db, st)
     return {"ok": True, "thirst": round(st["thirst"], 3), "note": thirst_note(st["thirst"])}
+
+
+# ================= P2 · 记忆框架（八类 episode + 突触边 + 遗忘 + 冲突） =================
+import re as _re
+
+KINDS = ("fact", "emotion", "preference", "promise", "event", "quote", "boundary", "topic")
+
+# 半衰期（天）：原文永不删，只降级
+HALF_LIFE = {
+    "fact": 3650, "preference": 365, "boundary": 3650, "promise": 180,
+    "event": 14, "emotion": 30, "quote": 120, "topic": 30,
+}
+
+
+def _bigrams(text: str) -> set:
+    t = _re.sub(r"[^\w\u4e00-\u9fff]+", "", (text or "").lower())
+    return {t[i:i + 2] for i in range(len(t) - 1)} if len(t) > 1 else ({t} if t else set())
+
+
+def _sim(a: set, b: set) -> float:
+    if not a or not b:
+        return 0.0
+    return len(a & b) / ((len(a) * len(b)) ** 0.5)
+
+
+def _mem_tables(db: Session) -> None:
+    d = "sqlite"
+    try:
+        d = db.bind.dialect.name if db.bind is not None else "sqlite"
+    except Exception:
+        pass
+    idcol = "INTEGER PRIMARY KEY AUTOINCREMENT" if d == "sqlite" else "BIGSERIAL PRIMARY KEY"
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS pet_episodes ("
+        f"id {idcol}, kind VARCHAR(16), text TEXT, importance REAL, hits INTEGER DEFAULT 0,"
+        "last_hit DOUBLE PRECISION, created_at DOUBLE PRECISION, superseded_by INTEGER,"
+        "archived INTEGER DEFAULT 0, entities TEXT)"
+    ))
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS pet_edges (a VARCHAR(32), b VARCHAR(32), w DOUBLE PRECISION,"
+        "rel VARCHAR(24), at DOUBLE PRECISION)"
+    ))
+    db.commit()
+
+
+def _mem_write(db: Session, content: str, kind: str, importance: float) -> dict:
+    _mem_tables(db)
+    kind = kind if kind in KINDS else "fact"
+    now = time.time()
+    grams = _bigrams(content)
+    rows = db.execute(text(
+        "SELECT id, kind, text, importance, superseded_by FROM pet_episodes "
+        "WHERE archived=0 ORDER BY id DESC LIMIT 300"
+    )).fetchall()
+
+    conflict_id = None
+    best = 0.0
+    for r in rows:
+        s = _sim(grams, _bigrams(r[2]))
+        if s > best:
+            best, conflict_id = s, r[0]
+    # 高相似但内容不同 → 旧条目标记被取代（原文保留）
+    superseded = conflict_id if (best > 0.72 and conflict_id) else None
+
+    db.execute(text(
+        "INSERT INTO pet_episodes(kind, text, importance, hits, last_hit, created_at, superseded_by, archived, entities) "
+        "VALUES(:k, :t, :i, 0, 0, :c, NULL, 0, '')"
+    ), {"k": kind, "t": content[:800], "i": max(0.0, min(1.0, importance)), "c": now})
+    new_id = db.execute(text("SELECT MAX(id) FROM pet_episodes")).scalar()
+
+    if superseded:
+        db.execute(text("UPDATE pet_episodes SET superseded_by=:n WHERE id=:o"),
+                   {"n": new_id, "o": superseded})
+
+    # 突触边：与最近 3 条建立连线
+    for r in rows[:3]:
+        w = round(_sim(grams, _bigrams(r[2])), 3)
+        if w > 0.15:
+            db.execute(text(
+                "INSERT INTO pet_edges(a, b, w, rel, at) VALUES(:a, :b, :w, 'similar', :t)"
+            ), {"a": str(new_id), "b": str(r[0]), "w": w, "t": now})
+    db.commit()
+    return {"ok": True, "id": new_id, "superseded": superseded, "best_sim": round(best, 3)}
+
+
+def _decay(imp: float, kind: str, created: float) -> float:
+    days = max(0.0, (time.time() - (created or 0)) / 86400.0)
+    if imp >= 0.7:
+        return imp
+    return max(0.05, imp * (0.5 ** (days / HALF_LIFE.get(kind, 30))))
+
+
+def _mem_search(db: Session, q: str, k: int = 5) -> list:
+    _mem_tables(db)
+    grams = _bigrams(q)
+    rows = db.execute(text(
+        "SELECT id, kind, text, importance, hits, created_at FROM pet_episodes "
+        "WHERE archived=0 AND superseded_by IS NULL ORDER BY id DESC LIMIT 500"
+    )).fetchall()
+    scored = []
+    for r in rows:
+        rel = _sim(grams, _bigrams(r[2]))
+        d = _decay(r[3], r[1], r[5])
+        score = 0.7 * rel + 0.3 * d
+        if rel > 0.12 or r[3] >= 0.75:
+            scored.append((score, r))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    out = []
+    for sc, r in scored[:k]:
+        db.execute(text("UPDATE pet_episodes SET hits=hits+1, last_hit=:t WHERE id=:i"),
+                   {"t": time.time(), "i": r[0]})
+        out.append({"id": r[0], "kind": r[1], "text": r[2], "score": round(sc, 3)})
+    db.commit()
+    return out
+
+
+@router.get("/life/memory", summary="记忆库 · 统计与最近")
+def mem_list(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _mem_tables(db)
+    rows = db.execute(text(
+        "SELECT id, kind, text, importance, archived, superseded_by FROM pet_episodes ORDER BY id DESC LIMIT 20"
+    )).fetchall()
+    total = db.execute(text("SELECT COUNT(*) FROM pet_episodes")).scalar() or 0
+    edges = db.execute(text("SELECT COUNT(*) FROM pet_edges")).scalar() or 0
+    return {
+        "total": total, "edges": edges,
+        "items": [{"id": r[0], "kind": r[1], "text": r[2], "importance": r[3],
+                   "archived": r[4], "superseded_by": r[5]} for r in rows],
+    }
+
+
+class MemIn(BaseModel):
+    text: str
+    kind: str = "fact"
+    importance: float = 0.6
+
+
+@router.post("/life/memory", summary="记忆库 · 写入一条")
+def mem_write(payload: MemIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _mem_write(db, payload.text, payload.kind, payload.importance)
+
+
+@router.get("/life/memory/search", summary="记忆库 · 检索")
+def mem_search(q: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return {"query": q, "hits": _mem_search(db, q)}
+
+
+@router.post("/life/memory/forget", summary="遗忘引擎 · 每天最多 3 条，只归档不删除")
+def mem_forget(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _mem_tables(db)
+    rows = db.execute(text(
+        "SELECT id, kind, importance, created_at FROM pet_episodes "
+        "WHERE archived=0 AND superseded_by IS NULL ORDER BY id LIMIT 500"
+    )).fetchall()
+    cand = []
+    for r in rows:
+        if r[2] >= 0.7:
+            continue
+        d = _decay(r[2], r[1], r[3])
+        if d < 0.12:
+            cand.append((d, r[0]))
+    cand.sort()
+    picked = cand[:3]
+    for _d, i in picked:
+        db.execute(text("UPDATE pet_episodes SET archived=1 WHERE id=:i"), {"i": i})
+    db.commit()
+    return {"ok": True, "archived": len(picked), "ids": [i for _d, i in picked]}
