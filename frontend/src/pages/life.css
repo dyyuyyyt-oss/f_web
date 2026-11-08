@@ -179,3 +179,12 @@
 .life-vitals-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .life-tag{font-size:11px;padding:3px 9px;border-radius:99px;background:rgba(94,200,242,.12);
   border:1px solid rgba(94,200,242,.28);color:#bfe8ff}
+
+.vital-hero{display:flex;gap:14px;align-items:center;margin-bottom:12px}
+.vital-tags{display:flex;flex-wrap:wrap;gap:6px;flex:1}
+.vital-water{display:flex;flex-direction:column;align-items:center;gap:4px}
+.jar{width:44px;height:88px;border:2px solid rgba(160,205,255,.55);border-radius:8px 8px 12px 12px;
+  position:relative;overflow:hidden;background:rgba(20,40,80,.4)}
+.jar-fill{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(180deg,#4fb8ff,#1f6fd0);
+  transition:height .6s ease}
+.jar-cap{font-size:10px;color:var(--life-dim);letter-spacing:1px}

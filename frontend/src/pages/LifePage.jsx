@@ -350,47 +350,22 @@ export default function LifePage() {
 
         <section className={'life-view' + (view === 'health' ? ' on' : '')}>
           <div className="life-health">
-            <div className="life-row">
-              <div className="life-card">
-                <h3>饥饿值</h3>
-                <div className="life-ring">
-                  <svg width="104" height="104" viewBox="0 0 104 104">
-                    <circle cx="52" cy="52" r="44" fill="none" stroke="rgba(255,255,255,.07)" strokeWidth="7" />
-                    <circle cx="52" cy="52" r="44" fill="none" stroke={hungerColor} strokeWidth="7"
-                      strokeLinecap="round" strokeDasharray="276"
-                      strokeDashoffset={276 - 276 * hungerPct} />
-                  </svg>
-                  <div className="num">{health ? health.hunger.value : '--'}</div>
-                </div>
-                <div className="lbl">{health ? health.hunger.label : '—'}</div>
+            <div className="vital-hero">
+              <div className="vital-tags">
+                {(vitals ? ['label_mood', 'label_thirst', 'label_hunger', 'label_sleep'] : []).map((k) => (
+                  <span key={k} className="life-tag">{vitals.labels[k]}</span>
+                ))}
               </div>
-              <div className="life-card">
-                <h3>TOKEN 饭钱</h3>
-                <div className="life-money">
-                  <div className="big">
-                    {health && health.wallet.balance !== null ? health.wallet.balance.toFixed(2) : '--'}
-                    <i>元</i>
-                  </div>
-                  <div className="note">{health ? health.wallet.note : '—'}</div>
+              <div className="vital-water">
+                <div className="jar">
+                  <div className="jar-fill" style={{ height: (vitals ? (1 - vitals.state.thirst) * 100 : 0) + '%' }} />
                 </div>
+                <div className="jar-cap">水罐</div>
               </div>
             </div>
 
             <div className="life-card life-bars">
-              <h3>神经递质 / 激素</h3>
-              {(health ? health.neuro : []).map((n) => (
-                <div className="life-bar" key={n.name}>
-                  <div className="name" title={n.basis || ''}>{n.name}</div>
-                  <div className="track">
-                    <div className="fill" style={{ width: n.v + '%', background: n.color }} />
-                  </div>
-                  <div className="val">{n.v}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="life-card life-bars">
-              <h3>生命状态 · 12 项</h3>
+              <h3>十二套子系统</h3>
               {(vitals ? vitals.bars : []).map((b) => (
                 <div className="life-bar" key={b.key}>
                   <div className="name">{b.name}</div>
@@ -400,22 +375,28 @@ export default function LifePage() {
                   <div className="val">{(b.v * 100).toFixed(0)}</div>
                 </div>
               ))}
-              {vitals && (
-                <div className="life-vitals-tags">
-                  {Object.values(vitals.labels).map((t, i) => (
-                    <span key={i} className="life-tag">{t}</span>
-                  ))}
+            </div>
+
+            <div className="life-card">
+              <h3>派生状态</h3>
+              {vitals && Object.entries(vitals.derived).map(([k, v]) => (
+                <div className="life-bar" key={k}>
+                  <div className="name">{
+                    ({ energy: '精力', mood: '心情', arousal: '唤醒', calm: '平静', attachment: '依恋', stress: '压力' })[k] || k
+                  }</div>
+                  <div className="track"><div className="fill" style={{ width: (v * 100).toFixed(0) + '%', background: '#a98bf0' }} /></div>
+                  <div className="val">{(v * 100).toFixed(0)}</div>
                 </div>
-              )}
+              ))}
             </div>
 
             <div className="life-card life-mood">
               <div className="life-avatar" />
               <div className="info">
-                <b>{health ? health.status.mood : '平静'}</b>
-                <span>最近看到 · {health ? health.saw.name : '—'}</span>
+                <b>{vitals ? vitals.labels.label_mood : '—'}</b>
+                <span>状态直出 · {vitals ? new Date(vitals.updated_at * 1000).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
               </div>
-              <button className="life-btn" style={{ marginLeft: 'auto' }} onClick={feed}>🍰</button>
+              <button className="life-btn" style={{ marginLeft: 'auto' }} onClick={feed}>🥤</button>
             </div>
           </div>
         </section>
