@@ -7,6 +7,8 @@ import ChatPage from './pages/ChatPage'
 import HomePage from './pages/HomePage'
 import GroupPage from './pages/GroupPage'
 import LifePage from './pages/LifePage'
+import AiBoxPage from './pages/AiBoxPage'
+import AiBoxRolePage from './pages/AiBoxRolePage'
 
 function App() {
   return (
@@ -43,6 +45,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <LifePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/aibox"
+            element={
+              <ProtectedRoute>
+                <AiBoxPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/aibox/:id"
+            element={
+              <ProtectedRoute>
+                <AiBoxRolePage />
               </ProtectedRoute>
             }
           />

@@ -6,6 +6,15 @@
 // - roles：哪些角色能看到这张卡（user / admin）
 export const FEATURES = [
   {
+    id: 'aibox',
+    title: 'AI BOX',
+    desc: '角色盒子：设定、性格、声音与记忆',
+    icon: '🎭',
+    to: '/aibox',
+    status: 'ready',
+    roles: ['user', 'admin'],
+  },
+  {
     id: 'life',
     title: '生活面板',
     desc: '她的健康、记忆星图与视频通话',
