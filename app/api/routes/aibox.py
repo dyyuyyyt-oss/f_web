@@ -323,19 +323,18 @@ def create_role(payload: RoleCreateIn, db: Session = Depends(get_db),
     if payload.payload:
         deep_merge(body, payload.payload)
 
-    db.execute(text(
-        "INSERT INTO aibox_role(name, subtitle, avatar, color, payload, sort, created_at, updated_at) "
-        "VALUES(:n,:s,:a,:c,:p,0,:t,:t)"
-    ), {
+    sql = ("INSERT INTO aibox_role(name, subtitle, avatar, color, payload, sort, created_at, updated_at) "
+           "VALUES(:n,:s,:a,:c,:p,0,:t,:t)")
+    if _dialect(db) != "sqlite":
+        sql += " RETURNING id"
+    cur = db.execute(text(sql), {
         "n": name, "s": (payload.subtitle or "")[:200],
         "a": payload.avatar or "O", "c": payload.color or "#5ec8f2",
         "p": json.dumps(body, ensure_ascii=False), "t": _now(),
     })
+    new_id = cur.lastrowid if _dialect(db) == "sqlite" else (cur.fetchone() or [None])[0]
     db.commit()
-    row = db.execute(text(
-        "SELECT id FROM aibox_role WHERE name=:n ORDER BY id DESC LIMIT 1"
-    ), {"n": name}).fetchone()
-    return {"id": row[0] if row else None, "ok": True}
+    return {"id": new_id, "ok": True}
 
 
 @router.post("/aibox/roles/bulk-delete", summary="AI BOX · 批量删除角色")
