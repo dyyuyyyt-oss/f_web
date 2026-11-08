@@ -622,6 +622,15 @@ def _derive(st: dict) -> dict:
 
 @router.get("/life/vitals", summary="生命状态 · 只读直出")
 def life_vitals(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    try:
+        return _vitals_payload(db)
+    except Exception as exc:
+        import traceback
+        return {"error": type(exc).__name__, "detail": str(exc)[:300],
+                "trace": traceback.format_exc()[-600:]}
+
+
+def _vitals_payload(db: Session) -> dict:
     st = _drift(_load(db))
     _save(db, st)
     d = _derive(st)
