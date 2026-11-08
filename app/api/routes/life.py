@@ -356,6 +356,13 @@ async def life_chat(payload: ChatIn, db: Session = Depends(get_db), user: User =
         pass
 
     try:
+        _vst = _drift(_load_vitals(db))
+        _vst = _react(_vst, payload.text)
+        _save_vitals(db, _vst)
+    except Exception:
+        pass
+
+    try:
         client = AIClient(provider=settings.ai_provider)
         result = await client.chat(
             messages=[
@@ -424,3 +431,145 @@ def set_pet_settings(payload: PetIn, db: Session = Depends(get_db), user: User =
         ), {"k": k, "v": json.dumps(v)})
     db.commit()
     return {"ok": True, "saved": patch}
+
+
+# ================= 生命状态（按《生命状态-完整实施指南 v2》的模型） =================
+import math as _math
+
+VITALS_DEFAULT = {
+    "hunger": 0.35, "thirst": 0.30, "adenosine": 0.20, "immune": 0.80,
+    "dopamine": 0.45, "serotonin": 0.55, "oxytocin": 0.50, "cortisol": 0.18,
+    "melatonin": 0.10, "sympathetic": 0.35, "parasympathetic": 0.50,
+    "endorphin": 0.45, "fluid_queue": 0.0, "updated_at": 0,
+}
+
+
+def _vitals_table(db: Session) -> None:
+    try:
+        d = db.bind.dialect.name if db.bind is not None else "sqlite"
+    except Exception:
+        d = "sqlite"
+    ddl = ("CREATE TABLE IF NOT EXISTS pet_vitals (k VARCHAR(32) PRIMARY KEY, v TEXT)"
+           if d != "sqlite" else
+           "CREATE TABLE IF NOT EXISTS pet_vitals (k VARCHAR(32) PRIMARY KEY, v TEXT)")
+    db.execute(text(ddl))
+    db.commit()
+
+
+def _load_vitals(db: Session) -> dict:
+    _vitals_table(db)
+    row = db.execute(text("SELECT v FROM pet_vitals WHERE k='state'")).fetchone()
+    st = dict(VITALS_DEFAULT)
+    if row:
+        try:
+            st.update(json.loads(row[0]))
+        except Exception:
+            pass
+    return st
+
+
+def _save_vitals(db: Session, st: dict) -> None:
+    st["updated_at"] = time.time()
+    db.execute(text(
+        "INSERT INTO pet_vitals(k, v) VALUES('state', :v) "
+        "ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v"
+    ), {"v": json.dumps(st)})
+    db.commit()
+
+
+def _clamp01(x: float) -> float:
+    return max(0.0, min(1.0, x))
+
+
+def _drift(st: dict) -> dict:
+    """时间漂移：口渴/饥饿/困意累积，昼夜影响褪黑素。"""
+    now = time.time()
+    last = st.get("updated_at") or now
+    hours = max(0.0, min(24.0, (now - last) / 3600.0))
+    if hours <= 0:
+        return st
+    lt = time.localtime(now)
+    awake = 8 <= lt.tm_hour < 23
+
+    st["thirst"] = _clamp01(st["thirst"] + hours * 0.055)
+    st["hunger"] = _clamp01(st["hunger"] + hours * 0.035)
+    st["adenosine"] = _clamp01(st["adenosine"] + (hours * 0.045 if awake else -hours * 0.09))
+    st["melatonin"] = _clamp01(0.75 if not awake else max(0.05, st["melatonin"] - hours * 0.05))
+    st["cortisol"] = _clamp01(st["cortisol"] + (hours * 0.02 if awake else -hours * 0.05))
+    st["serotonin"] = _clamp01(st["serotonin"] - hours * 0.01)
+    st["parasympathetic"] = _clamp01(st["parasympathetic"] + (0.02 * hours if not awake else 0))
+    st["updated_at"] = now
+    return st
+
+
+def _react(st: dict, text: str) -> dict:
+    """对话反应：喝水/吃饭/被夸。"""
+    t = text or ""
+    if any(w in t for w in ("喝水", "喝口水", "喝一口水", "一杯水", "去喝水", "嗓子干")):
+        st["thirst"] = _clamp01(st["thirst"] - 0.55)
+        st["dopamine"] = _clamp01(st["dopamine"] + 0.03)
+        st["endorphin"] = _clamp01(st["endorphin"] + 0.02)
+    if any(w in t for w in ("吃饭", "吃了", "饿", "投喂", "便当")):
+        st["hunger"] = _clamp01(st["hunger"] - 0.55)
+        st["serotonin"] = _clamp01(st["serotonin"] + 0.05)
+    if any(w in t for w in ("喜欢你", "宝宝", "可爱", "乖", "抱抱")):
+        st["oxytocin"] = _clamp01(st["oxytocin"] + 0.06)
+        st["dopamine"] = _clamp01(st["dopamine"] + 0.04)
+    return st
+
+
+def _derive(st: dict) -> dict:
+    """六个派生量 + 标签。"""
+    energy = _clamp01(1 - st["adenosine"] * 0.8 - st["hunger"] * 0.3 - st["thirst"] * 0.25)
+    mood = _clamp01(st["serotonin"] * 0.5 + st["dopamine"] * 0.3 + st["oxytocin"] * 0.2 - st["cortisol"] * 0.5)
+    arousal = _clamp01(st["sympathetic"] * 0.6 + st["cortisol"] * 0.4)
+    calm = _clamp01(st["parasympathetic"] * 0.7 + (1 - st["cortisol"]) * 0.3)
+    attachment = _clamp01(st["oxytocin"] * 0.8 + st["serotonin"] * 0.2)
+    stress = _clamp01(st["cortisol"] * 0.8 + st["sympathetic"] * 0.2)
+
+    def tag(v, pairs):
+        for th, name in pairs:
+            if v >= th:
+                return name
+        return pairs[-1][1]
+
+    return {
+        "energy": energy, "mood": mood, "arousal": arousal,
+        "calm": calm, "attachment": attachment, "stress": stress,
+        "label_mood": tag(mood, [(0.7, "心情不错"), (0.5, "平静"), (0.3, "有点低"), (0, "低落")]),
+        "label_thirst": tag(1 - st["thirst"], [(0.7, "不渴"), (0.55, "还行"), (0.45, "嘴里有点干"), (0.38, "嗓子有点干"), (0, "很渴")]),
+        "label_hunger": tag(1 - st["hunger"], [(0.7, "饱饱的"), (0.5, "还行"), (0.3, "有点饿"), (0, "饿了")]),
+        "label_sleep": tag(st["adenosine"], [(0.7, "撑不住了"), (0.5, "犯困"), (0.25, "精神"), (0, "很精神")]),
+    }
+
+
+@router.get("/life/vitals", summary="生命状态 · 12 项生理指标（只读直出）")
+def life_vitals(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    st = _drift(_load_vitals(db))
+    _save_vitals(db, st)
+    d = _derive(st)
+    keys = [
+        ("hunger", "饥饿", "反向"), ("thirst", "口渴", "反向"), ("adenosine", "腺苷(困意)"),
+        ("immune", "免疫"), ("dopamine", "多巴胺"), ("serotonin", "血清素"),
+        ("oxytocin", "催产素"), ("cortisol", "皮质醇"), ("melatonin", "褪黑素"),
+        ("sympathetic", "交感"), ("parasympathetic", "副交感"), ("endorphin", "内啡肽"),
+    ]
+    return {
+        "state": {k: round(st[k], 3) for k, _l, *_ in keys},
+        "bars": [{"key": k, "name": n, "v": round(st[k], 3)} for k, n, *_ in keys],
+        "derived": {k: round(v, 3) for k, v in d.items() if isinstance(v, float)},
+        "labels": {k: v for k, v in d.items() if k.startswith("label_")},
+        "updated_at": st["updated_at"],
+    }
+
+
+class ReactIn(BaseModel):
+    text: str
+
+
+@router.post("/life/react", summary="生命状态 · 对一句话做反应")
+def life_react(payload: ReactIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    st = _drift(_load_vitals(db))
+    st = _react(st, payload.text)
+    _save_vitals(db, st)
+    return {"ok": True, "state": {k: round(v, 3) for k, v in st.items() if isinstance(v, float)}}

@@ -18,6 +18,7 @@ export default function LifePage() {
   const [speakOn, setSpeakOn] = useState(false)
   const [voice, setVoice] = useState('zh-CN-XiaoyiNeural')
   const [voices, setVoices] = useState([])
+  const [vitals, setVitals] = useState(null)
   const [listening, setListening] = useState(false)
   const navigate = useNavigate()
   const audioRef = useRef(null)
@@ -36,6 +37,10 @@ export default function LifePage() {
       const r = await authFetch('/api/life/health')
       if (!r.ok) return
       setHealth(await r.json())
+      try {
+        const v = await authFetch('/api/life/vitals')
+        if (v.ok) setVitals(await v.json())
+      } catch (e) { /* 忽略 */ }
     } catch (e) { /* 忽略 */ }
   }, [])
 
@@ -382,6 +387,26 @@ export default function LifePage() {
                   <div className="val">{n.v}</div>
                 </div>
               ))}
+            </div>
+
+            <div className="life-card life-bars">
+              <h3>生命状态 · 12 项</h3>
+              {(vitals ? vitals.bars : []).map((b) => (
+                <div className="life-bar" key={b.key}>
+                  <div className="name">{b.name}</div>
+                  <div className="track">
+                    <div className="fill" style={{ width: (b.v * 100).toFixed(0) + '%', background: b.v > 0.7 ? '#f2695c' : (b.v > 0.4 ? '#f6c04a' : '#5ec8f2') }} />
+                  </div>
+                  <div className="val">{(b.v * 100).toFixed(0)}</div>
+                </div>
+              ))}
+              {vitals && (
+                <div className="life-vitals-tags">
+                  {Object.values(vitals.labels).map((t, i) => (
+                    <span key={i} className="life-tag">{t}</span>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="life-card life-mood">

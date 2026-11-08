@@ -175,3 +175,7 @@
 .life-call{animation:float 6s ease-in-out infinite}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
 @media (prefers-reduced-motion:reduce){ .life-call,.life-header .dot{animation:none} }
+
+.life-vitals-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.life-tag{font-size:11px;padding:3px 9px;border-radius:99px;background:rgba(94,200,242,.12);
+  border:1px solid rgba(94,200,242,.28);color:#bfe8ff}
