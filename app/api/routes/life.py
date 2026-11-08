@@ -153,6 +153,7 @@ def _metrics(db: Session) -> dict:
 
 @router.get("/life/health", summary="生活面板 · 健康状态")
 def life_health(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ensure_tables(db)
     m = _metrics(db)
 
     hunger = _clamp(5 + m["hours_since"] * 3.2)
@@ -234,6 +235,7 @@ def _rebuild_memory_block(db: Session) -> str:
 
 @router.get("/life/history", summary="大肥鱼 · 网页聊天记录")
 def life_history(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ensure_tables(db)
     try:
         _pet_chat_table(db)
         rows = db.execute(text(
@@ -246,6 +248,7 @@ def life_history(db: Session = Depends(get_db), user: User = Depends(get_current
 
 @router.get("/life/voices", summary="生活面板 · 可选声线")
 def life_voices(user: User = Depends(get_current_user)):
+    ensure_tables(db)
     return {"voices": VOICES}
 
 
@@ -278,6 +281,7 @@ async def life_tts(payload: TtsIn, user: User = Depends(get_current_user)):
 
 @router.post("/life/feed", summary="生活面板 · 喂一口")
 def life_feed(user: User = Depends(get_current_user)):
+    ensure_tables(db)
     st = load_state()
     st["last_feed"] = time.time()
     st["dopamine"] = min(100, int(st["dopamine"]) + 8)
@@ -288,6 +292,7 @@ def life_feed(user: User = Depends(get_current_user)):
 
 @router.get("/life/graph", summary="生活面板 · 记忆星图")
 def life_graph(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ensure_tables(db)
     rng = random.Random(20261031)
     nodes = [{"id": "self", "x": 0, "y": 0, "r": 13, "kind": "self", "label": "她"}]
     edges = [{"a": "self", "b": "self", "w": 0}]
@@ -334,6 +339,7 @@ class ChatIn(BaseModel):
 
 @router.post("/life/chat", summary="生活面板 · 皮套对话")
 async def life_chat(payload: ChatIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ensure_tables(db)
     from app.services.ai_client import AIClient
 
     st = load_state()
@@ -738,6 +744,7 @@ def _note(st: dict, d: dict, tags: list[str]) -> str:
 
 @router.get("/life/vitals", summary="生命状态 · 只读直出")
 def life_vitals(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ensure_tables(db)
     try:
         return _vitals_payload(db)
     except Exception as exc:
@@ -774,6 +781,7 @@ class ReactIn(BaseModel):
 
 @router.post("/life/react", summary="生命状态 · 对一句话反应")
 def life_react(payload: ReactIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ensure_tables(db)
     st = _drift(_load(db))
     st = _react(st, payload.text)
     _save(db, st)
@@ -896,6 +904,7 @@ def _mem_search(db: Session, q: str, k: int = 5) -> list:
 
 @router.get("/life/memory", summary="记忆库 · 统计与最近")
 def mem_list(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    ensure_tables(db)
     _mem_tables(db)
     rows = db.execute(text(
         "SELECT id, kind, text, importance, archived, superseded_by FROM pet_episodes ORDER BY id DESC LIMIT 20"
@@ -917,16 +926,19 @@ class MemIn(BaseModel):
 
 @router.post("/life/memory", summary="记忆库 · 写入一条")
 def mem_write(payload: MemIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    ensure_tables(db)
     return _mem_write(db, payload.text, payload.kind, payload.importance)
 
 
 @router.get("/life/memory/search", summary="记忆库 · 检索")
 def mem_search(q: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    ensure_tables(db)
     return {"query": q, "hits": _mem_search(db, q)}
 
 
 @router.post("/life/memory/forget", summary="遗忘引擎 · 每天最多 3 条，只归档不删除")
 def mem_forget(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    ensure_tables(db)
     _mem_tables(db)
     rows = db.execute(text(
         "SELECT id, kind, importance, created_at FROM pet_episodes "
@@ -945,6 +957,20 @@ def mem_forget(user: User = Depends(get_current_user), db: Session = Depends(get
         db.execute(text("UPDATE pet_episodes SET archived=1 WHERE id=:i"), {"i": i})
     db.commit()
     return {"ok": True, "archived": len(picked), "ids": [i for _d, i in picked]}
+
+
+def ensure_tables(db: Session) -> list:
+    """一次性建全所有运行时表（幂等）。"""
+    made = []
+    for fn, name in ((_pet_table, "pet_settings"), (_pet_chat_table, "pet_chat"),
+                     (_vitals_table, "pet_vitals"), (_mem_tables, "pet_episodes/pet_edges")):
+        try:
+            fn(db)
+            made.append(name)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("建表 %s 失败: %s", name, exc)
+    return made
 
 
 # ================= P3 · 三道保险 =================
@@ -975,6 +1001,7 @@ def _save_ledger(db: Session) -> dict:
 
 @router.get("/life/ledger", summary="账本 · 记录指纹")
 def life_ledger(save: int = 0, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    ensure_tables(db)
     n, digest = _ledger_digest(db)
     if save:
         _save_ledger(db)
@@ -989,6 +1016,7 @@ def life_ledger(save: int = 0, user: User = Depends(get_current_user), db: Sessi
 
 @router.get("/life/health-line", summary="体检 · 每日一行")
 def life_health_line(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    ensure_tables(db)
     _mem_tables(db)
     total = db.execute(text("SELECT COUNT(*) FROM pet_episodes")).scalar() or 0
     pinned = db.execute(text("SELECT COUNT(*) FROM pet_episodes WHERE importance>=0.7 AND archived=0")).scalar() or 0

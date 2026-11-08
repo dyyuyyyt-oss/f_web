@@ -11,6 +11,7 @@ from app.core.config import settings, DEFAULT_SECRET_KEY
 from app.db.session import init_db, close_db
 from app.models import Character, User, Conversation, Message
 from app.db.session import SessionLocal
+from app.api.routes.life import ensure_tables as _ensure_life_tables
 from app.api.routes import health, chat, characters, auth, admin, image, upload, groups, life, aibox
 from app.core.security import hash_password
 import logging
