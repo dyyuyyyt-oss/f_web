@@ -356,9 +356,9 @@ async def life_chat(payload: ChatIn, db: Session = Depends(get_db), user: User =
         pass
 
     try:
-        _vst = _drift(_load_vitals(db))
+        _vst = _drift(_load(db))
         _vst = _react(_vst, payload.text)
-        _save_vitals(db, _vst)
+        _save(db, _vst)
     except Exception:
         pass
 
@@ -433,33 +433,41 @@ def set_pet_settings(payload: PetIn, db: Session = Depends(get_db), user: User =
     return {"ok": True, "saved": patch}
 
 
-# ================= 生命状态（按《生命状态-完整实施指南 v2》的模型） =================
-import math as _math
+# ================= 生命状态（按《生命状态-完整实施指南 v2》第 5 章原式） =================
 
-VITALS_DEFAULT = {
-    "hunger": 0.35, "thirst": 0.30, "adenosine": 0.20, "immune": 0.80,
-    "dopamine": 0.45, "serotonin": 0.55, "oxytocin": 0.50, "cortisol": 0.18,
-    "melatonin": 0.10, "sympathetic": 0.35, "parasympathetic": 0.50,
-    "endorphin": 0.45, "fluid_queue": 0.0, "updated_at": 0,
+def clamp(x):
+    return max(0.0, min(1.0, float(x)))
+
+
+def follow(x, target, half_life_hours, hours):
+    """文档核心公式：x + (target-x) * (1 - 0.5**(hours/tau))"""
+    if half_life_hours <= 0:
+        return clamp(target)
+    return clamp(x + (target - x) * (1 - 0.5 ** (hours / half_life_hours)))
+
+
+DEFAULTS = {
+    "hunger": 0.35, "thirst": 0.28, "adenosine": 0.20, "immune": 0.82,
+    "dopamine": 0.45, "serotonin": 0.55, "oxytocin": 0.50, "cortisol": 0.22,
+    "melatonin": 0.10, "adrenaline": 0.25, "parasympathetic": 0.50,
+    "endorphin": 0.45, "noradrenaline": 0.35, "vasopressin": 0.30,
+    "osmolality": 0.35, "blood_volume": 0.85, "angiotensin": 0.10,
+    "fluid_queue": 0.0, "glucose": 0.55, "leptin": 0.45,
+    "crh": 0.15, "acth": 0.15, "cytokines": 0.05, "fever": 0.02,
+    "pain": 0.0, "anger": 0.05, "resentment": 0.02,
+    "updated_at": 0,
 }
 
 
 def _vitals_table(db: Session) -> None:
-    try:
-        d = db.bind.dialect.name if db.bind is not None else "sqlite"
-    except Exception:
-        d = "sqlite"
-    ddl = ("CREATE TABLE IF NOT EXISTS pet_vitals (k VARCHAR(32) PRIMARY KEY, v TEXT)"
-           if d != "sqlite" else
-           "CREATE TABLE IF NOT EXISTS pet_vitals (k VARCHAR(32) PRIMARY KEY, v TEXT)")
-    db.execute(text(ddl))
+    db.execute(text("CREATE TABLE IF NOT EXISTS pet_vitals (k VARCHAR(32) PRIMARY KEY, v TEXT)"))
     db.commit()
 
 
-def _load_vitals(db: Session) -> dict:
+def _load(db: Session) -> dict:
     _vitals_table(db)
     row = db.execute(text("SELECT v FROM pet_vitals WHERE k='state'")).fetchone()
-    st = dict(VITALS_DEFAULT)
+    st = dict(DEFAULTS)
     if row:
         try:
             st.update(json.loads(row[0]))
@@ -468,97 +476,166 @@ def _load_vitals(db: Session) -> dict:
     return st
 
 
-def _save_vitals(db: Session, st: dict) -> None:
+def _save(db: Session, st: dict) -> None:
     st["updated_at"] = time.time()
     db.execute(text(
         "INSERT INTO pet_vitals(k, v) VALUES('state', :v) "
-        "ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v"
-    ), {"v": json.dumps(st)})
+        "ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v"), {"v": json.dumps(st)})
     db.commit()
 
 
-def _clamp01(x: float) -> float:
-    return max(0.0, min(1.0, x))
+def _night_level(hour: int) -> float:
+    if hour >= 23 or hour < 7:
+        return 1.0
+    if hour < 9:
+        return 0.6
+    if hour >= 20:
+        return 0.7
+    return 0.0
 
 
 def _drift(st: dict) -> dict:
-    """时间漂移：口渴/饥饿/困意累积，昼夜影响褪黑素。"""
     now = time.time()
     last = st.get("updated_at") or now
     hours = max(0.0, min(24.0, (now - last) / 3600.0))
-    if hours <= 0:
+    if hours <= 0.001:
         return st
     lt = time.localtime(now)
-    awake = 8 <= lt.tm_hour < 23
+    hour = lt.tm_hour
+    night = _night_level(hour)
 
-    st["thirst"] = _clamp01(st["thirst"] + hours * 0.055)
-    st["hunger"] = _clamp01(st["hunger"] + hours * 0.035)
-    st["adenosine"] = _clamp01(st["adenosine"] + (hours * 0.045 if awake else -hours * 0.09))
-    st["melatonin"] = _clamp01(0.75 if not awake else max(0.05, st["melatonin"] - hours * 0.05))
-    st["cortisol"] = _clamp01(st["cortisol"] + (hours * 0.02 if awake else -hours * 0.05))
-    st["serotonin"] = _clamp01(st["serotonin"] - hours * 0.01)
-    st["parasympathetic"] = _clamp01(st["parasympathetic"] + (0.02 * hours if not awake else 0))
+    # —— 腺苷（5.9）：睡着降，醒着涨 ——
+    awake = 7 <= hour < 23
+    st["adenosine"] = clamp(st["adenosine"] + (0.042 if awake else -0.22) * hours)
+
+    # —— 褪黑素（5.6）：按时段基线回归 ——
+    na_base = {0: .22, 5: .22, 6: .45, 9: .72, 12: .55, 14: .70, 18: .60, 22: .35}
+    base = 0.22 if hour < 6 else (0.45 if hour < 9 else (0.72 if hour < 12 else (0.55 if hour < 14 else (0.70 if hour < 18 else (0.60 if hour < 22 else 0.35)))))
+    st["melatonin"] = follow(st["melatonin"], base, 0.5, hours)
+
+    # —— 饥饿（5.7）：越饿越慢 ——
+    rate = 0.045 * max(0.25, 1 - 0.75 * st["hunger"])
+    st["hunger"] = clamp(st["hunger"] + hours * rate)
+
+    # —— 水循环（5.8）：累积量，不是回归 ——
+    metabolic_rate = clamp(0.6 + 0.8 * max(0.0, st["adenosine"] - 0.3) + 0.4 * max(0.0, st["adrenaline"] - 0.5))
+    loss = hours * 0.018 * clamp(metabolic_rate, 0.75, 1.7)
+    st["osmolality"] = clamp(st["osmolality"] + loss * 0.55)
+    st["blood_volume"] = clamp(st["blood_volume"] - loss * 0.40)
+    st["angiotensin"] = follow(st["angiotensin"],
+                               clamp(0.10 + 0.85 * max(0.0, (0.85 - st["blood_volume"]) / 0.45)), 0.4, hours)
+    st["thirst"] = clamp(st["thirst"] + loss * 0.60 + 0.05 * max(0.0, st["angiotensin"] - 0.35))
+
+    # —— HPA 轴（5.2，慢）——
+    low_glucose = clamp((0.55 - st["glucose"]) / 0.35)
+    high_hunger = clamp((st["hunger"] - 0.55) / 0.45)
+    load = clamp(0.55 * st["cortisol"] + 0.25 * low_glucose + 0.20 * high_hunger)
+    feedback = 1 - 0.70 * clamp((st["cortisol"] - 0.55) / 0.45)
+    st["crh"] = follow(st["crh"], clamp(load * feedback), 0.15, hours)
+    st["acth"] = follow(st["acth"], clamp(st["crh"] * 0.95), 0.35, hours)
+    buffer = 1 - 0.35 * clamp((st["oxytocin"] - 0.40) / 0.60)
+    st["cortisol"] = follow(st["cortisol"], clamp(0.15 + 0.80 * st["acth"]) * buffer, 1.20, hours)
+
+    # —— 交感（5.3）——
+    st["adrenaline"] = follow(st["adrenaline"], clamp(0.05 + 0.85 * load), 0.06, hours)
+    leptin = st["leptin"]
+    para_target = clamp(0.22 + 0.35 * (1 - st["adrenaline"]) + 0.22 * leptin + 0.18 * night)
+    st["parasympathetic"] = follow(st["parasympathetic"], para_target, 0.9, hours)
+
+    # —— 奖赏双系统（5.4）——
+    want = clamp(0.70 * st["dopamine"] + 0.30 * st["oxytocin"] - 0.25 * st["cortisol"])
+    st["endorphin"] = follow(st["endorphin"], clamp(0.20 + 0.65 * want), 0.80, hours)
+
+    # —— 免疫（36 小时半衰）——
+    st["immune"] = follow(st["immune"], 0.85, 36.0, hours)
+    st["fever"] = follow(st["fever"], clamp(st["cytokines"] * 0.85), 1.0, hours)
+    st["pain"] *= 0.5 ** (min(24.0, hours) / 0.5)
+
+    # —— 血糖缓慢回归 ——
+    st["glucose"] = follow(st["glucose"], 0.55, 1.5, hours)
+    st["leptin"] = follow(st["leptin"], clamp(0.35 + 0.5 * (1 - st["hunger"])), 3.0, hours)
+
     st["updated_at"] = now
     return st
 
 
+DRINK = ("水", "茶", "咖啡", "奶茶", "可乐", "果汁", "汽水", "汤", "酒")
+DRINK_HINTS = ("喝", "来一", "灌", "一口")
+
+
+def _is_drink(text: str) -> bool:
+    return any(w in text for w in DRINK) and any(h in text for h in DRINK_HINTS)
+
+
 def _react(st: dict, text: str) -> dict:
-    """对话反应：喝水/吃饭/被夸。"""
     t = text or ""
-    if any(w in t for w in ("喝水", "喝口水", "喝一口水", "一杯水", "去喝水", "嗓子干")):
-        st["thirst"] = _clamp01(st["thirst"] - 0.55)
-        st["dopamine"] = _clamp01(st["dopamine"] + 0.03)
-        st["endorphin"] = _clamp01(st["endorphin"] + 0.02)
-    if any(w in t for w in ("吃饭", "吃了", "饿", "投喂", "便当")):
-        st["hunger"] = _clamp01(st["hunger"] - 0.55)
-        st["serotonin"] = _clamp01(st["serotonin"] + 0.05)
-    if any(w in t for w in ("喜欢你", "宝宝", "可爱", "乖", "抱抱")):
-        st["oxytocin"] = _clamp01(st["oxytocin"] + 0.06)
-        st["dopamine"] = _clamp01(st["dopamine"] + 0.04)
+    if _is_drink(t):
+        st["thirst"] = clamp(st["thirst"] - 0.55)
+        st["osmolality"] = clamp(st["osmolality"] - 0.30)
+        st["blood_volume"] = clamp(st["blood_volume"] + 0.18)
+        st["angiotensin"] = clamp(st["angiotensin"] - 0.25)
+        st["fluid_queue"] = clamp(st["fluid_queue"] + 0.55)
+        st["dopamine"] = clamp(st["dopamine"] + 0.036)
+        st["endorphin"] = clamp(st["endorphin"] + 0.030)
+    if any(w in t for w in ("吃饭", "吃了", "投喂", "便当", "外卖")):
+        st["hunger"] = clamp(st["hunger"] - 0.55)
+        st["glucose"] = clamp(st["glucose"] + 0.25)
+        st["leptin"] = clamp(st["leptin"] + 0.20)
+        st["serotonin"] = clamp(st["serotonin"] + 0.05)
+    if any(w in t for w in ("喜欢你", "宝宝", "可爱", "乖", "抱抱", "亲亲")):
+        st["oxytocin"] = clamp(st["oxytocin"] + 0.07)
+        st["dopamine"] = clamp(st["dopamine"] + 0.04)
+        st["cortisol"] = clamp(st["cortisol"] - 0.05)
+    if any(w in t for w in ("凶", "滚", "烦", "讨厌")):
+        st["anger"] = clamp(st["anger"] + 0.35)
+        st["resentment"] = clamp(st["resentment"] + 0.10)
+        st["adrenaline"] = clamp(st["adrenaline"] + 0.15)
+        st["serotonin"] = clamp(st["serotonin"] - 0.08)
     return st
 
 
+def thirst_note(v: float) -> str:
+    if v > 0.82: return "渴得厉害，嗓子发干，满脑子都是水"
+    if v > 0.62: return "有点渴，想喝点凉的"
+    if v > 0.45: return "嗓子有点干，想喝口水"
+    if v > 0.30: return "嘴里有点干，不严重"
+    if v < 0.25: return "刚喝过水，嘴里还润着"
+    return ""
+
+
 def _derive(st: dict) -> dict:
-    """六个派生量 + 标签。"""
-    energy = _clamp01(1 - st["adenosine"] * 0.8 - st["hunger"] * 0.3 - st["thirst"] * 0.25)
-    mood = _clamp01(st["serotonin"] * 0.5 + st["dopamine"] * 0.3 + st["oxytocin"] * 0.2 - st["cortisol"] * 0.5)
-    arousal = _clamp01(st["sympathetic"] * 0.6 + st["cortisol"] * 0.4)
-    calm = _clamp01(st["parasympathetic"] * 0.7 + (1 - st["cortisol"]) * 0.3)
-    attachment = _clamp01(st["oxytocin"] * 0.8 + st["serotonin"] * 0.2)
-    stress = _clamp01(st["cortisol"] * 0.8 + st["sympathetic"] * 0.2)
-
-    def tag(v, pairs):
-        for th, name in pairs:
-            if v >= th:
-                return name
-        return pairs[-1][1]
-
+    energy = clamp(1 - st["adenosine"] * 0.65 - st["hunger"] * 0.25 - st["thirst"] * 0.20)
+    mood = clamp(st["serotonin"] * 0.42 + st["dopamine"] * 0.28 + st["oxytocin"] * 0.20 - st["cortisol"] * 0.42 - st["anger"] * 0.25)
+    arousal = clamp(st["adrenaline"] * 0.55 + st["cortisol"] * 0.30 + st["noradrenaline"] * 0.15)
+    calm = clamp(st["parasympathetic"] * 0.70 + (1 - st["cortisol"]) * 0.30)
+    attachment = clamp(st["oxytocin"] * 0.72 + st["vasopressin"] * 0.18 + st["serotonin"] * 0.10)
+    stress = clamp(st["cortisol"] * 0.55 + st["adrenaline"] * 0.30 + st["crh"] * 0.15)
     return {
-        "energy": energy, "mood": mood, "arousal": arousal,
-        "calm": calm, "attachment": attachment, "stress": stress,
-        "label_mood": tag(mood, [(0.7, "心情不错"), (0.5, "平静"), (0.3, "有点低"), (0, "低落")]),
-        "label_thirst": tag(1 - st["thirst"], [(0.7, "不渴"), (0.55, "还行"), (0.45, "嘴里有点干"), (0.38, "嗓子有点干"), (0, "很渴")]),
-        "label_hunger": tag(1 - st["hunger"], [(0.7, "饱饱的"), (0.5, "还行"), (0.3, "有点饿"), (0, "饿了")]),
-        "label_sleep": tag(st["adenosine"], [(0.7, "撑不住了"), (0.5, "犯困"), (0.25, "精神"), (0, "很精神")]),
+        "energy": energy, "mood": mood, "arousal": arousal, "calm": calm,
+        "attachment": attachment, "stress": stress,
+        "label_mood": ("心情不错" if mood > .7 else "平静" if mood > .5 else "有点低" if mood > .3 else "低落"),
+        "label_thirst": thirst_note(st["thirst"]) or "不渴",
+        "label_hunger": ("饱饱的" if st["hunger"] < .3 else "还行" if st["hunger"] < .55 else "有点饿" if st["hunger"] < .78 else "饿了"),
+        "label_sleep": ("撑不住了" if st["adenosine"] > .7 else "犯困" if st["adenosine"] > .5 else "精神" if st["adenosine"] > .25 else "很精神"),
     }
 
 
-@router.get("/life/vitals", summary="生命状态 · 12 项生理指标（只读直出）")
+@router.get("/life/vitals", summary="生命状态 · 只读直出")
 def life_vitals(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    st = _drift(_load_vitals(db))
-    _save_vitals(db, st)
+    st = _drift(_load(db))
+    _save(db, st)
     d = _derive(st)
-    keys = [
-        ("hunger", "饥饿", "反向"), ("thirst", "口渴", "反向"), ("adenosine", "腺苷(困意)"),
-        ("immune", "免疫"), ("dopamine", "多巴胺"), ("serotonin", "血清素"),
-        ("oxytocin", "催产素"), ("cortisol", "皮质醇"), ("melatonin", "褪黑素"),
-        ("sympathetic", "交感"), ("parasympathetic", "副交感"), ("endorphin", "内啡肽"),
+    bars = [
+        ("hunger", "饥饿"), ("thirst", "口渴"), ("adenosine", "腺苷(困意)"), ("immune", "免疫"),
+        ("dopamine", "多巴胺"), ("serotonin", "血清素"), ("oxytocin", "催产素"), ("cortisol", "皮质醇"),
+        ("melatonin", "褪黑素"), ("adrenaline", "肾上腺素"), ("parasympathetic", "副交感"), ("endorphin", "内啡肽"),
     ]
     return {
-        "state": {k: round(st[k], 3) for k, _l, *_ in keys},
-        "bars": [{"key": k, "name": n, "v": round(st[k], 3)} for k, n, *_ in keys],
+        "state": {k: round(st[k], 3) for k, _ in bars},
+        "bars": [{"key": k, "name": n, "v": round(st[k], 3)} for k, n in bars],
         "derived": {k: round(v, 3) for k, v in d.items() if isinstance(v, float)},
         "labels": {k: v for k, v in d.items() if k.startswith("label_")},
+        "thirst_note": thirst_note(st["thirst"]),
         "updated_at": st["updated_at"],
     }
 
@@ -567,9 +644,9 @@ class ReactIn(BaseModel):
     text: str
 
 
-@router.post("/life/react", summary="生命状态 · 对一句话做反应")
+@router.post("/life/react", summary="生命状态 · 对一句话反应")
 def life_react(payload: ReactIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    st = _drift(_load_vitals(db))
+    st = _drift(_load(db))
     st = _react(st, payload.text)
-    _save_vitals(db, st)
-    return {"ok": True, "state": {k: round(v, 3) for k, v in st.items() if isinstance(v, float)}}
+    _save(db, st)
+    return {"ok": True, "thirst": round(st["thirst"], 3), "note": thirst_note(st["thirst"])}
