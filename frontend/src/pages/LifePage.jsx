@@ -6,6 +6,7 @@ import './life.css'
 const VIEWS = [
   { key: 'stars', icon: '✧', label: '星图' },
   { key: 'health', icon: '♥', label: '健康' },
+  { key: 'space', icon: '⌂', label: '空间' },
   { key: 'chat', icon: '◍', label: '对话' },
 ]
 
@@ -19,6 +20,8 @@ export default function LifePage() {
   const [voice, setVoice] = useState('zh-CN-XiaoyiNeural')
   const [voices, setVoices] = useState([])
   const [vitals, setVitals] = useState(null)
+  const [space, setSpace] = useState(null)
+  const [refusal, setRefusal] = useState('')
   const [listening, setListening] = useState(false)
   const navigate = useNavigate()
   const audioRef = useRef(null)
@@ -40,6 +43,10 @@ export default function LifePage() {
       try {
         const v = await authFetch('/api/life/vitals')
         if (v.ok) setVitals(await v.json())
+      } catch (e) { /* 忽略 */ }
+      try {
+        const s = await authFetch('/api/life/space')
+        if (s.ok) setSpace(await s.json())
       } catch (e) { /* 忽略 */ }
     } catch (e) { /* 忽略 */ }
   }, [])
@@ -301,6 +308,20 @@ export default function LifePage() {
     } catch (e) { /* 忽略 */ }
   }
 
+  const moveTo = async (id) => {
+    setRefusal('')
+    try {
+      const r = await authFetch('/api/life/space/move', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ spot: id }),
+      })
+      const d = await r.json()
+      if (!d.ok) setRefusal(d.error || '她不想动')
+      const s = await authFetch('/api/life/space')
+      if (s.ok) setSpace(await s.json())
+    } catch (e) { setRefusal('（连不上）') }
+  }
+
   const feed = async () => {
     try { await authFetch('/api/life/feed', { method: 'POST' }); loadHealth() } catch (e) { /* 忽略 */ }
   }
@@ -400,6 +421,32 @@ export default function LifePage() {
                 <span>状态直出 · {vitals ? new Date(vitals.updated_at * 1000).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
               </div>
               <button className="life-btn" style={{ marginLeft: 'auto' }} onClick={feed}>🥤</button>
+            </div>
+          </div>
+        </section>
+
+        <section className={'life-view' + (view === 'space' ? ' on' : '')}>
+          <div className="life-space">
+            <div className="room">
+              <div className="room-floor" />
+              {(space ? space.spots : []).map((s) => (
+                <button
+                  key={s.id}
+                  className={'spot' + (space && s.id === space.spot ? ' here' : '')}
+                  style={{ left: (s.x * 100).toFixed(1) + '%', top: (s.y * 100).toFixed(1) + '%' }}
+                  onClick={() => moveTo(s.id)}
+                >{s.name}</button>
+              ))}
+              {space && (
+                <div className="pet-dot" style={{ left: (space.pos.x * 100).toFixed(1) + '%', top: (space.pos.y * 100).toFixed(1) + '%' }}>
+                  <span>🐋</span>
+                </div>
+              )}
+            </div>
+            <div className="space-info">
+              <b>{space ? space.spot_name + ' · ' + space.act : '—'}</b>
+              <span>{space && space.can_move ? '她愿意走走' : (space ? '还有 ' + Math.ceil(space.busy_left / 60) + ' 分钟才想动' : '')}</span>
+              {refusal && <em>{refusal}</em>}
             </div>
           </div>
         </section>
