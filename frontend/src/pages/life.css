@@ -188,3 +188,6 @@
 .jar-fill{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(180deg,#4fb8ff,#1f6fd0);
   transition:height .6s ease}
 .jar-cap{font-size:10px;color:var(--life-dim);letter-spacing:1px}
+
+.life-tag.hot{background:rgba(246,192,74,.16);border-color:rgba(246,192,74,.45);color:#ffe6a8}
+.life-tag.dim{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.10);color:#9fb0cc}

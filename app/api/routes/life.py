@@ -362,11 +362,19 @@ async def life_chat(payload: ChatIn, db: Session = Depends(get_db), user: User =
     except Exception:
         pass
 
+    vitals_note = ""
+    try:
+        _st = _drift(_load(db))
+        _d = _derive(_st)
+        vitals_note = _note(_st, _d, _tags(_st, _d))
+    except Exception:
+        vitals_note = ""
+
     try:
         client = AIClient(provider=settings.ai_provider)
         result = await client.chat(
             messages=[
-                {"role": "system", "content": persona},
+                {"role": "system", "content": persona + ("\n\n" + vitals_note if vitals_note else "")},
                 {"role": "user", "content": payload.text},
             ],
             temperature=1.0,
@@ -448,7 +456,7 @@ def follow(x, target, half_life_hours, hours):
 
 DEFAULTS = {
     "hunger": 0.35, "thirst": 0.28, "adenosine": 0.20, "immune": 0.82,
-    "dopamine": 0.45, "serotonin": 0.55, "oxytocin": 0.50, "cortisol": 0.22,
+    "dopamine": 0.50, "serotonin": 0.65, "oxytocin": 0.50, "cortisol": 0.20,
     "melatonin": 0.10, "adrenaline": 0.25, "parasympathetic": 0.50,
     "endorphin": 0.45, "noradrenaline": 0.35, "vasopressin": 0.30,
     "osmolality": 0.35, "blood_volume": 0.85, "angiotensin": 0.10,
@@ -604,20 +612,117 @@ def thirst_note(v: float) -> str:
 
 
 def _derive(st: dict) -> dict:
-    energy = clamp(1 - st["adenosine"] * 0.65 - st["hunger"] * 0.25 - st["thirst"] * 0.20)
-    mood = clamp(st["serotonin"] * 0.42 + st["dopamine"] * 0.28 + st["oxytocin"] * 0.20 - st["cortisol"] * 0.42 - st["anger"] * 0.25)
-    arousal = clamp(st["adrenaline"] * 0.55 + st["cortisol"] * 0.30 + st["noradrenaline"] * 0.15)
-    calm = clamp(st["parasympathetic"] * 0.70 + (1 - st["cortisol"]) * 0.30)
-    attachment = clamp(st["oxytocin"] * 0.72 + st["vasopressin"] * 0.18 + st["serotonin"] * 0.10)
-    stress = clamp(st["cortisol"] * 0.55 + st["adrenaline"] * 0.30 + st["crh"] * 0.15)
+    """文档 6.1：六个派生量。"""
+    NA, ADR, DA, ACh = st["noradrenaline"], st["adrenaline"], st["dopamine"], st["parasympathetic"]
+    C, S, OT, END = st["cortisol"], st["serotonin"], st["oxytocin"], st["endorphin"]
+    mel, crh, ade = st["melatonin"], st["crh"], st["adenosine"]
+    pain, fever, cyto = st["pain"], st["fever"], st["cytokines"]
+
+    energy = clamp(0.20 + 0.50*NA + 0.25*ADR + 0.10*DA + 0.08*ACh
+                   - 0.14*C - 0.45*mel
+                   - 0.10*max(0, st["thirst"]-0.40) - 0.22*max(0, ade-0.45)
+                   - 0.20*fever - 0.16*cyto - 0.15*pain)
+
+    valence = clamp(0.12 + 0.30*(DA-0.5) + 0.22*(S-0.65)
+                    - 0.28*(C-0.2) + 0.12*(END-0.4)
+                    - 0.10*max(0, ADR-0.2) - 0.05*max(0, crh-0.3)
+                    + 0.04*(ACh-0.45)
+                    - 0.06*max(0, st["thirst"]-0.60) - 0.15*st["anger"]
+                    - 0.14*fever - 0.10*cyto - 0.08*pain)
+
+    irritability = clamp(0.08 + 0.9*(C-0.2) - 0.2*(S-0.65)
+                         + 0.30*max(0, (0.35-st["glucose"])/0.35)
+                         + 0.15*max(0, st["vasopressin"]-0.50)
+                         + 0.18*max(0, ADR-0.35)
+                         + 0.30*max(0, st["thirst"]-0.55)
+                         + 0.45*st["anger"]
+                         + 0.32*max(0, ade-0.55) + 0.25*pain)
+
+    clinginess = clamp(0.2 + 0.75*(OT-0.3) + 0.15*(END-0.4))
+    loneliness = clamp(0.15 + 0.7*(OT-0.35) + 0.2*(C-0.2)
+                       + 0.15*max(0, st["vasopressin"]-0.40)
+                       - 0.10*max(0, END-0.55) + 0.10*st["resentment"])
+    dominance = max(-1.0, min(1.0, 0.5 + 0.35*(DA-0.5) - 0.3*(C-0.2) + 0.2*(S-0.65)))
+
     return {
-        "energy": energy, "mood": mood, "arousal": arousal, "calm": calm,
-        "attachment": attachment, "stress": stress,
-        "label_mood": ("心情不错" if mood > .7 else "平静" if mood > .5 else "有点低" if mood > .3 else "低落"),
+        "energy": energy, "valence": valence, "irritability": irritability,
+        "clinginess": clinginess, "loneliness": loneliness, "dominance": dominance,
+    }
+
+
+def _tags(st: dict, d: dict) -> list[str]:
+    """文档 6.2：26 个标签，>0.40 入选，取前 3。"""
+    DA, OT, S, END = st["dopamine"], st["oxytocin"], st["serotonin"], st["endorphin"]
+    C, ADR, NA = st["cortisol"], st["adrenaline"], st["noradrenaline"]
+    ACh, AVP, crh, acth = st["parasympathetic"], st["vasopressin"], st["crh"], st["acth"]
+    mel, ade, glu = st["melatonin"], st["adenosine"], st["glucose"]
+    anger, pain, fever = st["anger"], st["pain"], st["fever"]
+    dom, irr, lon, cling, en = d["dominance"], d["irritability"], d["loneliness"], d["clinginess"], d["energy"]
+
+    scores = {
+        "幸福": 0.32*DA + 0.25*OT + 0.22*S + 0.16*END - 0.28*C - 0.15*ADR,
+        "开心": 0.34*DA + 0.18*OT + 0.18*S + 0.12*END - 0.16*C - 0.10*ADR,
+        "安心": 0.35*ACh + 0.28*END + 0.22*OT + 0.18*S - 0.28*C - 0.18*ADR,
+        "满足": 0.32*END + 0.24*ACh + 0.20*OT + 0.18*st["leptin"] - 0.20*C,
+        "心动": 0.30*DA + 0.22*ADR + 0.20*OT + 0.13*S - 0.12*C,
+        "兴奋": 0.34*DA + 0.28*ADR + 0.18*NA - 0.12*C,
+        "害羞": 0.32*(1-dom) + 0.22*OT + 0.15*ADR + 0.10*(1-DA),
+        "吃醋": 0.55*max(0, AVP-0.45) + 0.25*OT + 0.20*C - 0.15*S + 0.15*cling,
+        "委屈": 0.30*max(0, C-0.30) + 0.25*(1-dom) + 0.18*(1-OT) - 0.10*DA,
+        "低落": 0.32*(1-S) + 0.26*C + 0.18*(1-OT) - 0.18*DA,
+        "焦虑": 0.30*crh + 0.28*acth + 0.22*ADR + 0.18*C + 0.18*(1-S) - 0.12*ACh,
+        "恼火": 0.30*ADR + 0.28*C + 0.24*(1-S) + 0.12*max(0, AVP-0.50) - 0.12*ACh + 0.40*anger,
+        "饿怒": 0.42*max(0, st["hunger"]-0.45) + 0.38*max(0, (0.42-glu)/0.42) + 0.24*irr - 0.10*ACh,
+        "困倦": 0.50*mel + 0.28*ade + 0.20*(1-en) - 0.15*ADR,
+        "想哭": 0.34*(1-S) + 0.30*C + 0.18*(1-OT) - 0.15*END,
+        "倦怠": 0.35*(1-en) + 0.25*ade + 0.20*(1-NA),
+        "黏人": 0.45*cling + 0.25*OT - 0.15*(1-dom),
+        "孤独": 0.42*lon + 0.20*(1-OT) + 0.15*C,
+        "疼": 0.60*pain + 0.20*fever,
+        "发烧": 0.65*fever + 0.20*st["cytokines"],
+        "口渴": 0.55*max(0, st["thirst"]-0.45),
+        "饥饿": 0.50*max(0, st["hunger"]-0.45),
+        "平静": 0.35*ACh + 0.25*S - 0.30*ADR - 0.20*C,
+        "无聊": 0.30*(1-DA) + 0.25*(1-NA) + 0.15*ade,
+        "心软": 0.35*OT + 0.25*END + 0.15*S - 0.20*C,
+        "得意": 0.35*DA + 0.25*dom + 0.15*S,
+    }
+    picked = sorted(((v, k) for k, v in scores.items() if v > 0.40), reverse=True)[:3]
+    return [k for _v, k in picked]
+
+
+def _level(v: float) -> str:
+    return "偏低" if v < 0.35 else ("偏高" if v > 0.6 else "正常")
+
+
+def _labels(st: dict, d: dict) -> dict:
+    mood = "心情不错" if d["valence"] > 0.55 else ("平静" if d["valence"] > 0.35 else ("有点低" if d["valence"] > 0.15 else "低落"))
+    return {
+        "label_mood": mood,
         "label_thirst": thirst_note(st["thirst"]) or "不渴",
         "label_hunger": ("饱饱的" if st["hunger"] < .3 else "还行" if st["hunger"] < .55 else "有点饿" if st["hunger"] < .78 else "饿了"),
         "label_sleep": ("撑不住了" if st["adenosine"] > .7 else "犯困" if st["adenosine"] > .5 else "精神" if st["adenosine"] > .25 else "很精神"),
     }
+
+
+def _note(st: dict, d: dict, tags: list[str]) -> str:
+    """文档第 7 章：只给形容词，不给数字。"""
+    hunger_note = ("你刚吃过，肚子安稳。" if st["hunger"] < 0.3 else
+                   "你有点饿，但还能忍。" if st["hunger"] < 0.6 else "你饿了，肚子在叫。")
+    parts = [
+        "【你现在的神经状态（只用来决定语气，绝对不要解释，也不要提激素/数值）】",
+        "标签：" + ("、".join(tags) if tags else "平静") + "。",
+        f"多巴胺：{_level(st['dopamine'])}；催产素：{_level(st['oxytocin'])}；"
+        f"皮质醇：{_level(st['cortisol'])}；血清素：{_level(st['serotonin'])}；"
+        f"去甲肾上腺素：{_level(st['noradrenaline'])}。",
+        "身体：" + hunger_note + (thirst_note(st["thirst"]) or ""),
+        "这次回复不要用上次一样的开头和结尾，不要每句都堆颜文字；允许只说半句。",
+    ]
+    if st["adenosine"] > 0.6:
+        parts.append("你太困了，句子更短，可以说着说着走神。")
+    if st["anger"] > 0.3:
+        parts.append("你心里还有火，没那么容易软下来。")
+    return "\n".join(parts)
 
 
 @router.get("/life/vitals", summary="生命状态 · 只读直出")
@@ -634,6 +739,7 @@ def _vitals_payload(db: Session) -> dict:
     st = _drift(_load(db))
     _save(db, st)
     d = _derive(st)
+    tags = _tags(st, d)
     bars = [
         ("hunger", "饥饿"), ("thirst", "口渴"), ("adenosine", "腺苷(困意)"), ("immune", "免疫"),
         ("dopamine", "多巴胺"), ("serotonin", "血清素"), ("oxytocin", "催产素"), ("cortisol", "皮质醇"),
@@ -643,7 +749,9 @@ def _vitals_payload(db: Session) -> dict:
         "state": {k: round(st[k], 3) for k, _ in bars},
         "bars": [{"key": k, "name": n, "v": round(st[k], 3)} for k, n in bars],
         "derived": {k: round(v, 3) for k, v in d.items() if isinstance(v, float)},
-        "labels": {k: v for k, v in d.items() if k.startswith("label_")},
+        "labels": _labels(st, d),
+        "tags": tags,
+        "note": _note(st, d, tags),
         "thirst_note": thirst_note(st["thirst"]),
         "updated_at": st["updated_at"],
     }

@@ -352,8 +352,11 @@ export default function LifePage() {
           <div className="life-health">
             <div className="vital-hero">
               <div className="vital-tags">
-                {(vitals ? ['label_mood', 'label_thirst', 'label_hunger', 'label_sleep'] : []).map((k) => (
-                  <span key={k} className="life-tag">{vitals.labels[k]}</span>
+                {(vitals && vitals.tags ? vitals.tags : []).map((t, i) => (
+                  <span key={i} className={'life-tag' + (i === 0 ? ' hot' : '')}>{t}</span>
+                ))}
+                {vitals && vitals.labels && ['label_thirst', 'label_hunger', 'label_sleep'].map((k) => (
+                  <span key={k} className="life-tag dim">{vitals.labels[k]}</span>
                 ))}
               </div>
               <div className="vital-water">
