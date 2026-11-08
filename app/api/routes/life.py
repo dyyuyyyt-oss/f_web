@@ -519,7 +519,7 @@ def _drift(st: dict) -> dict:
 
     # —— 水循环（5.8）：累积量，不是回归 ——
     metabolic_rate = clamp(0.6 + 0.8 * max(0.0, st["adenosine"] - 0.3) + 0.4 * max(0.0, st["adrenaline"] - 0.5))
-    loss = hours * 0.018 * clamp(metabolic_rate, 0.75, 1.7)
+    loss = hours * 0.018 * max(0.75, min(1.7, metabolic_rate))
     st["osmolality"] = clamp(st["osmolality"] + loss * 0.55)
     st["blood_volume"] = clamp(st["blood_volume"] - loss * 0.40)
     st["angiotensin"] = follow(st["angiotensin"],
