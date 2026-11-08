@@ -100,3 +100,63 @@ payload
   接的时候把 `build_system_prompt()` 的产物塞进 chat_service 的 system prompt 即可，接口已经现成。
 - 记忆只做了**写入和展示**，检索、遗忘曲线、星图都还没接。
 - 上传的声线是**回放样本**，不是克隆。
+## 七、部署到硬件
+
+角色编辑页右上角有「部署到硬件」按钮。按下去之后：
+
+```
+confur.cc(网页) → Render(控制面) → 用户电脑上的桥接程序(轮询)
+                                        → 串口拉 RTS 复位 ESP32
+ESP32 重启 → 启动日志 → 桥接解析成 7 项自检 → 回报控制面 → 网页显示结果
+```
+
+### 接口
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|---|---|---|---|
+| POST | /api/aibox/roles/{id}/deploy | 用户 | 设定目标角色，revision + 1 |
+| GET | /api/aibox/device | 用户 | 硬件状态 + 当前角色 + 自检结果 |
+| GET | /api/aibox/device/bootstrap | 设备令牌 | 桥接拉待部署角色（含编译好的 prompt 和声线） |
+| POST | /api/aibox/device/ack | 设备令牌 | 桥接确认已应用 + 上报自检 |
+| POST | /api/aibox/device/report | 设备令牌 | 周期上报状态 |
+
+设备令牌走 X-Device-Token 头，默认 confur-aibox-device，
+两端要一致：Render 环境变量 AIBOX_DEVICE_TOKEN ↔ 桥接程序 config.yaml 的 device.token。
+
+### 自检做了什么
+
+不另写一套检测代码，而是**解析固件本来就会打印的启动日志**：
+
+| 检查项 | 判据 |
+|---|---|
+| 内存 PSRAM | Found 8MB PSRAM |
+| 屏幕 | LCD panel create success |
+| 音频编解码 | BoxAudioDevice initialized |
+| WiFi 联网 | Got IP: x.x.x.x（顺带取出 IP） |
+| 唤醒词模型 | AfeWakeWord: Model 0 |
+| 固件运行 | Ota: Current version: 1.9.4 |
+| 剩余内存 | free sram: N |
+
+顺带从 rssi: -71 里取出 WiFi 信号强度。
+
+好处：固件改版不用同步改自检代码，日志里有什么就验什么。代价是需要固件日志级别保持 INFO（现在是）。
+
+### 重启后保留角色
+
+桥接把应用过的角色写进 active_role.json（prompt + 声线 + revision 全在里面）。
+进程重启时先读这个文件，所以：
+
+- 硬件重启 → 角色还在
+- 电脑重启 → 角色还在
+- 控制面挂了 → 角色还在（只是不能再改）
+
+只有 revision 变了才会重新部署 + 重启硬件，单纯重启桥接不会折腾设备。
+
+### 硬件状态栏
+
+角色列表页底部固定一条：
+
+    硬件在线 | 当前角色 MOSS | 电量 USB 供电（本板无电池） | 信号 -71 dBm | IP 192.168.5.103 | 自检通过 | 心跳 20:46:49
+
+**电量这一项是空的**：ESP-BOX-3 没有电池，走 USB-C 供电。
+字段留着（status.battery），换带电池的板子时固件报上来就能显示。

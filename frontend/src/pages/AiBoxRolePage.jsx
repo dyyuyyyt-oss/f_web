@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   getRole, patchRole, previewPrompt, listVoices, uploadVoice, deleteVoice,
-  ttsBlob, getMemory, addMemory,
+  ttsBlob, getMemory, addMemory, deployRole, getDevice,
 } from '../api/aibox'
 import './aibox.css'
 
@@ -30,6 +30,7 @@ export default function AiBoxRolePage() {
   const [showPrompt, setShowPrompt] = useState(null)
   const [newTrait, setNewTrait] = useState('')
   const [newMem, setNewMem] = useState('')
+  const [deploy, setDeploy] = useState({ phase: 'idle', msg: '' })
   const audioRef = useRef(null)
   const fileRef = useRef(null)
 
@@ -151,6 +152,33 @@ export default function AiBoxRolePage() {
     }
   }
 
+  const onDeploy = async () => {
+    if (!window.confirm(`把「${role.name}」部署到硬件？\n\n硬件会自动重启并做一次自检，重启后保持这个角色。`)) return
+    setDeploy({ phase: 'pending', msg: '正在下发…' })
+    try {
+      const res = await deployRole(id)
+      const rev = res.revision
+      setDeploy({ phase: 'applying', msg: `已下发 (rev ${rev})，等待硬件重启自检…` })
+      const t0 = Date.now()
+      while (Date.now() - t0 < 90000) {
+        await new Promise((r) => setTimeout(r, 3000))
+        const d = await getDevice()
+        const ds = d.status || {}
+        if (d.applied_rev >= rev && ds.online) {
+          setDeploy({
+            phase: 'done',
+            msg: `已部署 · 自检${(ds.self_check && ds.self_check.ok) ? '通过' : '有未通过项'} · IP ${ds.ip || '—'}`,
+          })
+          return
+        }
+        setDeploy({ phase: 'applying', msg: `硬件重启中…（已应用 rev ${d.applied_rev} / 目标 ${rev}）` })
+      }
+      setDeploy({ phase: 'error', msg: '等太久没收到硬件回报，检查电脑上的桥接程序是否在跑' })
+    } catch (e) {
+      setDeploy({ phase: 'error', msg: e.message || '部署失败' })
+    }
+  }
+
   const doPreviewPrompt = async () => {
     try { setShowPrompt(await previewPrompt(id)) } catch (e) { flash('生成失败', true) }
   }
@@ -172,7 +200,21 @@ export default function AiBoxRolePage() {
           </div>
           <span className="spacer" />
           <button className="ab-btn" onClick={doPreviewPrompt}>查看系统提示词</button>
+          <button className="ab-btn primary" onClick={onDeploy}
+            disabled={deploy.phase === 'pending' || deploy.phase === 'applying'}>
+            {deploy.phase === 'pending' || deploy.phase === 'applying' ? '部署中…' : '部署到硬件'}
+          </button>
         </div>
+
+        {deploy.phase !== 'idle' && (
+          <div className="ab-hint" style={{
+            marginTop: -8, marginBottom: 14,
+            color: deploy.phase === 'error' ? '#ffb4ac'
+              : deploy.phase === 'done' ? '#9ff0c4' : '#f6c04a',
+          }}>
+            {deploy.msg}
+          </div>
+        )}
 
         {/* ---------------- 设定 ---------------- */}
         <section className={'ab-view' + (tab === 'spec' ? ' on' : '')}>

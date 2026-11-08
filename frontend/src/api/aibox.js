@@ -97,3 +97,16 @@ export async function addMemory(id, payload) {
   })
   return jsonOrThrow(res, '记录失败')
 }
+export async function deployRole(id, deviceId = 'box-01') {
+  const res = await authFetch(`/api/aibox/roles/${id}/deploy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_id: deviceId }),
+  })
+  return jsonOrThrow(res, '部署失败')
+}
+
+export async function getDevice(deviceId = 'box-01') {
+  const res = await authFetch(`/api/aibox/device?device_id=${deviceId}`)
+  return jsonOrThrow(res, '读取硬件状态失败')
+}

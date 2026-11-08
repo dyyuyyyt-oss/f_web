@@ -13,7 +13,7 @@
 .ab-header .dot{width:7px;height:7px;border-radius:50%;background:var(--ab-green);box-shadow:0 0 10px var(--ab-green)}
 .ab-header .sub{font-size:11px;color:var(--ab-dim);letter-spacing:1px;margin-left:4px}
 .ab-header .spacer{flex:1}
-.ab-main{flex:1;overflow-y:auto;padding:18px 20px 96px}
+.ab-main{flex:1;overflow-y:auto;padding:18px 20px 128px}
 .ab-back{border:1px solid var(--ab-line);background:rgba(255,255,255,.03);color:#b9c6e4;
   border-radius:20px;padding:4px 12px;font-size:12px;cursor:pointer;letter-spacing:1px}
 .ab-back:hover{background:rgba(255,255,255,.08);color:#fff}
@@ -54,9 +54,23 @@
 .ab-empty{border:1px dashed var(--ab-line);border-radius:18px;padding:56px 20px;text-align:center;color:var(--ab-dim)}
 
 /* 底部操作条（管理模式） */
-.ab-bar{position:fixed;left:0;right:0;bottom:0;display:flex;align-items:center;gap:12px;
+.ab-bar{position:fixed;left:0;right:0;bottom:36px;display:flex;align-items:center;gap:12px;
   padding:12px 20px;background:rgba(6,10,20,.92);border-top:1px solid var(--ab-line);
   backdrop-filter:blur(12px);z-index:20}
+
+/* 底部硬件状态条 */
+.ab-devbar{position:fixed;left:0;right:0;bottom:0;display:flex;align-items:center;gap:12px;
+  padding:8px 20px;background:rgba(4,7,14,.96);border-top:1px solid var(--ab-line);
+  font-size:11.5px;color:var(--ab-dim);z-index:21;backdrop-filter:blur(12px);white-space:nowrap;overflow-x:auto}
+.ab-devbar .live{display:flex;align-items:center;gap:6px;font-weight:600;letter-spacing:1px}
+.ab-devbar .live i{width:7px;height:7px;border-radius:50%;font-style:normal;display:inline-block}
+.ab-devbar .live.on{color:var(--ab-green)}
+.ab-devbar .live.on i{background:var(--ab-green);box-shadow:0 0 8px var(--ab-green)}
+.ab-devbar .live.off{color:#8d97ad}
+.ab-devbar .live.off i{background:#5a6478}
+.ab-devbar .sep{width:1px;height:11px;background:var(--ab-line);flex:none}
+.ab-devbar b{color:#d5e2fa;font-weight:600;margin-left:4px}
+.ab-devbar .warn{color:#f6c04a}
 .ab-bar .info{font-size:13px;color:#c6d3ee}
 .ab-bar .spacer{flex:1}
 

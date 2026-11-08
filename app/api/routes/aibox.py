@@ -26,7 +26,7 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -582,5 +582,174 @@ def add_memory(rid: int, payload: MemoryIn, db: Session = Depends(get_db),
         "i": float(payload.importance), "m": json.dumps(payload.meta or {}, ensure_ascii=False),
         "c": _now(),
     })
+    db.commit()
+    return {"ok": True}
+
+# ==========================================================================
+# 硬件（AI BOX 实体设备）—— 部署与状态
+#
+# 拓扑：
+#   confur.cc(网页) → Render(控制面) → 用户电脑上的桥接程序(轮询) → 串口复位 ESP32
+#   ESP32 起来后照常连桥接程序的 WebSocket，跑被部署的角色
+#
+# 鉴权：桥接程序用设备令牌（X-Device-Token），不占用用户 JWT。
+# ==========================================================================
+DEVICE_TOKEN = os.environ.get("AIBOX_DEVICE_TOKEN", "confur-aibox-device")
+DEFAULT_DEVICE = "box-01"
+
+
+def _ensure_device_table(db: Session) -> None:
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS aibox_device ("
+        "device_id VARCHAR(64) PRIMARY KEY, "
+        "name VARCHAR(120), role_id INTEGER, "
+        "desired_rev INTEGER DEFAULT 0, applied_rev INTEGER DEFAULT 0, "
+        "last_seen VARCHAR(32), status TEXT, deployed_at VARCHAR(32), updated_at VARCHAR(32))"
+    ))
+    db.commit()
+
+
+def _device_row(db: Session, device_id: str):
+    _ensure_device_table(db)
+    row = db.execute(text(
+        "SELECT device_id, name, role_id, desired_rev, applied_rev, last_seen, status, deployed_at "
+        "FROM aibox_device WHERE device_id=:d"
+    ), {"d": device_id}).fetchone()
+    if row:
+        return row
+    db.execute(text(
+        "INSERT INTO aibox_device(device_id, name, role_id, desired_rev, applied_rev, updated_at) "
+        "VALUES(:d,:n,0,0,0,:t)"
+    ), {"d": device_id, "n": "AI BOX", "t": _now()})
+    db.commit()
+    return db.execute(text(
+        "SELECT device_id, name, role_id, desired_rev, applied_rev, last_seen, status, deployed_at "
+        "FROM aibox_device WHERE device_id=:d"
+    ), {"d": device_id}).fetchone()
+
+
+def _require_device(x_device_token: str | None) -> None:
+    if (x_device_token or "") != DEVICE_TOKEN:
+        raise HTTPException(status_code=401, detail="设备令牌无效")
+
+
+class DeployIn(BaseModel):
+    device_id: str = DEFAULT_DEVICE
+
+
+class AckIn(BaseModel):
+    device_id: str = DEFAULT_DEVICE
+    rev: int
+    self_check: dict | None = None
+
+
+class ReportIn(BaseModel):
+    device_id: str = DEFAULT_DEVICE
+    status: dict | None = None
+
+
+@router.post("/aibox/roles/{rid}/deploy", summary="AI BOX · 部署该角色到硬件")
+def deploy_role(rid: int, payload: DeployIn, db: Session = Depends(get_db),
+                user: User = Depends(get_current_user)):
+    _ensure_tables(db)
+    row = db.execute(text(
+        "SELECT " + ROLE_COLS + " FROM aibox_role WHERE id=:i"), {"i": rid}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="角色不存在")
+    dev = _device_row(db, payload.device_id)
+    rev = int(dev[3] or 0) + 1
+    db.execute(text(
+        "UPDATE aibox_device SET role_id=:r, desired_rev=:v, deployed_at=:t, updated_at=:t "
+        "WHERE device_id=:d"
+    ), {"r": rid, "v": rev, "t": _now(), "d": payload.device_id})
+    db.commit()
+    return {"ok": True, "device_id": payload.device_id, "role_id": rid,
+            "role_name": row[1], "revision": rev}
+
+
+@router.get("/aibox/device", summary="AI BOX · 硬件当前状态")
+def device_status(device_id: str = DEFAULT_DEVICE, db: Session = Depends(get_db),
+                  user: User = Depends(get_current_user)):
+    dev = _device_row(db, device_id)
+    st = {}
+    try:
+        st = json.loads(dev[6] or "{}")
+    except Exception:
+        st = {}
+    role = None
+    if dev[2]:
+        r = db.execute(text(
+            "SELECT " + ROLE_COLS + " FROM aibox_role WHERE id=:i"), {"i": dev[2]}).fetchone()
+        if r:
+            role = {"id": r[0], "name": r[1], "subtitle": r[2], "avatar": r[3], "color": r[4]}
+    return {
+        "device_id": dev[0],
+        "name": dev[1] or "AI BOX",
+        "role": role,
+        "desired_rev": int(dev[3] or 0),
+        "applied_rev": int(dev[4] or 0),
+        "deployed_at": dev[7] or "",
+        "last_seen": dev[5] or "",
+        "status": st,
+    }
+
+
+@router.get("/aibox/device/bootstrap", summary="硬件桥接 · 拉取待部署角色（设备令牌）")
+def device_bootstrap(device_id: str = DEFAULT_DEVICE,
+                     x_device_token: str | None = Header(default=None, alias="X-Device-Token"),
+                     db: Session = Depends(get_db)):
+    _require_device(x_device_token)
+    dev = _device_row(db, device_id)
+    role_payload, prompt, voice, role_name, role_id = None, "", {}, "", int(dev[2] or 0)
+    if role_id:
+        r = db.execute(text(
+            "SELECT " + ROLE_COLS + " FROM aibox_role WHERE id=:i"), {"i": role_id}).fetchone()
+        if r:
+            body = _load_payload(r[5])
+            role_payload = body
+            role_name = r[1]
+            prompt = build_system_prompt(body, r[1])
+            voice = body.get("voice") or {}
+    return {
+        "device_id": dev[0],
+        "revision": int(dev[3] or 0),
+        "applied_revision": int(dev[4] or 0),
+        "role_id": role_id,
+        "role_name": role_name,
+        "role_subtitle": "",
+        "prompt": prompt,
+        "voice": voice,
+        "payload": role_payload,
+    }
+
+
+@router.post("/aibox/device/ack", summary="硬件桥接 · 确认已应用（设备令牌）")
+def device_ack(payload: AckIn,
+               x_device_token: str | None = Header(default=None, alias="X-Device-Token"),
+               db: Session = Depends(get_db)):
+    _require_device(x_device_token)
+    _device_row(db, payload.device_id)
+    st = {}
+    if payload.self_check:
+        st["self_check"] = payload.self_check
+    db.execute(text(
+        "UPDATE aibox_device SET applied_rev=:v, last_seen=:t, status=:s, updated_at=:t "
+        "WHERE device_id=:d"
+    ), {"v": int(payload.rev), "t": _now(),
+        "s": json.dumps(st, ensure_ascii=False), "d": payload.device_id})
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/aibox/device/report", summary="硬件桥接 · 上报状态（设备令牌）")
+def device_report(payload: ReportIn,
+                  x_device_token: str | None = Header(default=None, alias="X-Device-Token"),
+                  db: Session = Depends(get_db)):
+    _require_device(x_device_token)
+    _device_row(db, payload.device_id)
+    db.execute(text(
+        "UPDATE aibox_device SET last_seen=:t, status=:s WHERE device_id=:d"
+    ), {"t": _now(), "s": json.dumps(payload.status or {}, ensure_ascii=False),
+        "d": payload.device_id})
     db.commit()
     return {"ok": True}

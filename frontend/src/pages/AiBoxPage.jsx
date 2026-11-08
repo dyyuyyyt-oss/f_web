@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { listRoles, createRole, bulkDelete } from '../api/aibox'
+import { listRoles, createRole, bulkDelete, getDevice } from '../api/aibox'
 import './aibox.css'
 
 const AVATAR_CHOICES = ['◉', '🎭', '🐋', '🌊', '🔮', '🌙', '⚙️', '🕯️', '🎧', '🧿']
@@ -15,6 +15,7 @@ export default function AiBoxPage() {
   const [showNew, setShowNew] = useState(false)
   const [draft, setDraft] = useState({ name: '', subtitle: '', avatar: '◉', color: '#5ec8f2' })
   const [busy, setBusy] = useState(false)
+  const [device, setDevice] = useState(null)
   const navigate = useNavigate()
 
   const load = useCallback(async () => {
@@ -31,6 +32,19 @@ export default function AiBoxPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    let alive = true
+    const tick = async () => {
+      try {
+        const d = await getDevice()
+        if (alive) setDevice(d)
+      } catch (e) { /* 后端没起来时静默 */ }
+    }
+    tick()
+    const t = setInterval(tick, 10000)
+    return () => { alive = false; clearInterval(t) }
+  }, [])
 
   const toggle = (id) => {
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
@@ -75,6 +89,16 @@ export default function AiBoxPage() {
       setBusy(false)
     }
   }
+
+  const ds = (device && device.status) || {}
+  const online = !!ds.online
+  const battery = ds.battery
+  const batteryText = (battery === null || battery === undefined)
+    ? 'USB 供电（本板无电池）'
+    : `${battery}%`
+  const rssi = ds.rssi
+  const sigText = (rssi === null || rssi === undefined) ? '—' : `${rssi} dBm`
+  const noteText = ds.note || (device ? '等待汇报' : '未连接控制面')
 
   return (
     <div className="ab-root">
@@ -138,6 +162,27 @@ export default function AiBoxPage() {
           </div>
         )}
       </main>
+
+      <div className="ab-devbar">
+        <span className={'live ' + (online ? 'on' : 'off')}>
+          <i />{online ? '硬件在线' : '硬件离线'}
+        </span>
+        <span className="sep" />
+        <span>当前角色<b>{device?.role?.name || '未部署'}</b></span>
+        <span className="sep" />
+        <span>电量<b>{batteryText}</b></span>
+        <span className="sep" />
+        <span>信号<b>{sigText}</b></span>
+        {ds.ip && <><span className="sep" /><span>IP<b>{ds.ip}</b></span></>}
+        <span className="sep" />
+        <span className={online ? '' : 'warn'}>{noteText}</span>
+        {device?.last_seen && (
+          <>
+            <span className="sep" />
+            <span>心跳<b>{device.last_seen.slice(11)}</b></span>
+          </>
+        )}
+      </div>
 
       {manage && (
         <div className="ab-bar">
