@@ -963,7 +963,8 @@ def ensure_tables(db: Session) -> list:
     """一次性建全所有运行时表（幂等）。"""
     made = []
     for fn, name in ((_pet_table, "pet_settings"), (_pet_chat_table, "pet_chat"),
-                     (_vitals_table, "pet_vitals"), (_mem_tables, "pet_episodes/pet_edges")):
+                     (_vitals_table, "pet_vitals"), (_mem_tables, "pet_episodes/pet_edges"),
+                     (_space_table, "pet_space")):
         try:
             fn(db)
             made.append(name)
@@ -1029,3 +1030,110 @@ def life_health_line(user: User = Depends(get_current_user), db: Session = Depen
         time.strftime("%Y-%m-%d %H:%M"), total, pinned, cold, edges,
         digest[:8], st["thirst"], st["hunger"], st["adenosine"])
     return {"line": line}
+
+
+# ================= P4 · 大平层空间（三层分离 / spots / 行为优先级 / 不能动） =================
+
+SPOTS = {
+    "desk": {"name": "书桌", "x": 0.28, "y": 0.42, "act": ["写东西", "发呆", "翻旧信"]},
+    "bed": {"name": "床", "x": 0.72, "y": 0.62, "act": ["躺着", "打盹", "抱着枕头"]},
+    "window": {"name": "窗边", "x": 0.52, "y": 0.18, "act": ["看外面", "晒会儿太阳"]},
+    "kitchen": {"name": "厨房", "x": 0.14, "y": 0.70, "act": ["找吃的", "烧水"]},
+    "sofa": {"name": "沙发", "x": 0.60, "y": 0.78, "act": ["窝着", "刷手机"]},
+}
+
+
+def _space_table(db: Session) -> None:
+    db.execute(text("CREATE TABLE IF NOT EXISTS pet_space (k VARCHAR(32) PRIMARY KEY, v TEXT)"))
+    db.commit()
+
+
+def _space_load(db: Session) -> dict:
+    _space_table(db)
+    row = db.execute(text("SELECT v FROM pet_space WHERE k='state'")).fetchone()
+    st = {"spot": "desk", "act": "发呆", "since": 0, "busy_until": 0, "last_event": ""}
+    if row:
+        try:
+            st.update(json.loads(row[0]))
+        except Exception:
+            pass
+    if not st.get("since"):
+        st["since"] = time.time()
+    return st
+
+
+def _space_save(db: Session, st: dict) -> None:
+    db.execute(text(
+        "INSERT INTO pet_space(k, v) VALUES('state', :v) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v"
+    ), {"v": json.dumps(st)})
+    db.commit()
+
+
+def _choose_spot(st_vitals: dict, sp: dict) -> tuple[str, str, float]:
+    """行为优先级表：只按优先级挑，不做自由寻路。返回 (spot, act, 预计停留秒)。"""
+    now_h = time.localtime().tm_hour
+    if st_vitals["adenosine"] > 0.65 or now_h >= 23 or now_h < 7:
+        return "bed", "睡着了", 60 * 90
+    if st_vitals["hunger"] > 0.62:
+        return "kitchen", "找吃的", 60 * 20
+    if st_vitals["thirst"] > 0.55:
+        return "kitchen", "倒水", 60 * 8
+    if st_vitals["cortisol"] > 0.55 or st_vitals["anger"] > 0.3:
+        return "sofa", "窝着不想说话", 60 * 25
+    if st_vitals["oxytocin"] > 0.62 and 9 <= now_h < 23:
+        return "window", "在窗边等消息", 60 * 30
+    return "desk", "发呆", 60 * 40
+
+
+@router.get("/life/space", summary="大平层 · 她此刻在哪")
+def life_space(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    ensure_tables(db)
+    sp = _space_load(db)
+    st = _drift(_load(db))
+    now = time.time()
+
+    # 到点才换位置；否则就是"不能动"
+    if now >= sp.get("busy_until", 0):
+        spot, act, stay = _choose_spot(st, sp)
+        moved = spot != sp["spot"]
+        sp.update({"spot": spot, "act": act, "since": now, "busy_until": now + stay})
+        if moved:
+            ev = "她走到了%s，%s" % (SPOTS[spot]["name"], act)
+            sp["last_event"] = ev
+            try:
+                _mem_write(db, ev, "event", 0.35)
+            except Exception:
+                pass
+        _space_save(db, sp)
+    else:
+        _space_save(db, sp)
+
+    left = max(0, int(sp["busy_until"] - now))
+    return {
+        "spot": sp["spot"],
+        "spot_name": SPOTS[sp["spot"]]["name"],
+        "pos": {"x": SPOTS[sp["spot"]]["x"], "y": SPOTS[sp["spot"]]["y"]},
+        "act": sp["act"],
+        "staying_for": int(now - sp["since"]),
+        "busy_left": left,
+        "can_move": left <= 0,
+        "last_event": sp.get("last_event", ""),
+        "spots": [{"id": k, "name": v["name"], "x": v["x"], "y": v["y"]} for k, v in SPOTS.items()],
+    }
+
+
+class MoveIn(BaseModel):
+    spot: str
+
+
+@router.post("/life/space/move", summary="大平层 · 让她去哪")
+def life_space_move(payload: MoveIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    ensure_tables(db)
+    if payload.spot not in SPOTS:
+        return {"ok": False, "error": "没有这个位置"}
+    sp = _space_load(db)
+    if time.time() < sp.get("busy_until", 0):
+        return {"ok": False, "error": "她现在不想动（%s）" % sp["act"], "busy_left": int(sp["busy_until"] - time.time())}
+    sp.update({"spot": payload.spot, "act": "走过去", "since": time.time(), "busy_until": time.time() + 180})
+    _space_save(db, sp)
+    return {"ok": True, "spot": payload.spot}
