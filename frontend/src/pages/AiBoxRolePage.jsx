@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   getRole, patchRole, previewPrompt, listVoices, uploadVoice, deleteVoice,
   ttsBlob, getMemory, addMemory, deployRole, getDevice,
+  postChat, getChat, chatHistory,
 } from '../api/aibox'
 import './aibox.css'
 
@@ -11,6 +12,7 @@ const TABS = [
   { key: 'personality', icon: '✧', label: '性格' },
   { key: 'voice', icon: '♪', label: '声音' },
   { key: 'memory', icon: '◍', label: '记忆' },
+  { key: 'chat', icon: '💬', label: '对话' },
 ]
 
 const lines = (arr) => (Array.isArray(arr) ? arr.join('\n') : '')
@@ -31,6 +33,11 @@ export default function AiBoxRolePage() {
   const [newTrait, setNewTrait] = useState('')
   const [newMem, setNewMem] = useState('')
   const [deploy, setDeploy] = useState({ phase: 'idle', msg: '' })
+  const [chat, setChat] = useState([])
+  const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
+  const [chatHint, setChatHint] = useState('')
+  const chatRef = useRef(null)
   const audioRef = useRef(null)
   const fileRef = useRef(null)
 
@@ -176,6 +183,68 @@ export default function AiBoxRolePage() {
       setDeploy({ phase: 'error', msg: '等太久没收到硬件回报，检查电脑上的桥接程序是否在跑' })
     } catch (e) {
       setDeploy({ phase: 'error', msg: e.message || '部署失败' })
+    }
+  }
+
+  // ---------------- 对话 ----------------
+  useEffect(() => {
+    if (tab !== 'chat') return
+    let alive = true
+    ;(async () => {
+      try {
+        const list = await chatHistory(id)
+        if (!alive) return
+        const flat = []
+        for (const m of list) {
+          flat.push({ role: 'user', text: m.user_text })
+          if (m.reply) flat.push({ role: 'bot', text: m.reply })
+        }
+        setChat(flat)
+      } catch (e) { /* 忽略 */ }
+    })()
+    return () => { alive = false }
+  }, [tab, id])
+
+  useEffect(() => {
+    const el = chatRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [chat, sending])
+
+  const sendChat = async () => {
+    const text = draft.trim()
+    if (!text || sending) return
+    setDraft('')
+    setChat((c) => [...c, { role: 'user', text }])
+    setSending(true)
+    setChatHint('正在唤醒盒子…')
+    try {
+      const res = await postChat(id, text)
+      const taskId = res.task_id
+      const t0 = Date.now()
+      let warned = false
+      while (Date.now() - t0 < 90000) {
+        await new Promise((r) => setTimeout(r, 800))
+        const t = await getChat(taskId)
+        if (t.status === 'done') {
+          setChat((c) => [...c, { role: 'bot', text: t.reply }])
+          setChatHint('')
+          return
+        }
+        if (t.status === 'error') {
+          setChat((c) => [...c, { role: 'bot', text: '（出错了：' + (t.reply || '未知') + '）' }])
+          setChatHint('')
+          return
+        }
+        if (!warned && Date.now() - t0 > 6000) {
+          warned = true
+          setChatHint('盒子还没接走消息 —— 检查电脑上的桥接程序是否在跑、设备是否在线')
+        }
+      }
+      setChatHint('等了 90 秒没有回复，盒子可能离线了')
+    } catch (e) {
+      setChatHint(e.message || '发送失败')
+    } finally {
+      setSending(false)
     }
   }
 
@@ -518,6 +587,35 @@ export default function AiBoxRolePage() {
               <div className="ab-hint" style={{ marginTop: 10 }}>
                 这张表是给「记忆引擎」留的底座：检索、遗忘曲线、星图都读它。
                 现在只做了写入，检索还没接。
+              </div>
+            </div>
+          </div>
+        </section>
+        <section className={'ab-view' + (tab === 'chat' ? ' on' : '')}>
+          <div className="ab-pane">
+            <div className="ab-cardbox">
+              <h4>和「{role.name}」说话（走硬件那条真流水线）</h4>
+              <div className="ab-chatlog" ref={chatRef}>
+                {chat.length === 0 && (
+                  <div className="ab-hint">
+                    还没有对话。发一句话试试 —— 它会送到你电脑上的桥接程序，
+                    用部署在硬件上的这个角色来回你（人格、声线、记忆都是同一份）。
+                  </div>
+                )}
+                {chat.map((m, i) => (
+                  <div key={i} className={'ab-msg ' + (m.role === 'user' ? 'me' : 'bot')}>{m.text}</div>
+                ))}
+                {sending && <div className="ab-typing">● ● ●</div>}
+              </div>
+              {chatHint && <div className="ab-hint" style={{ color: '#f6c04a', marginTop: 6 }}>{chatHint}</div>}
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <input className="ab-input" style={{ flex: 1 }} value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') sendChat() }}
+                  placeholder={sending ? '等待回复…' : '说点什么…'} disabled={sending} />
+                <button className="ab-btn primary" onClick={sendChat} disabled={sending || !draft.trim()}>
+                  {sending ? '…' : '发送'}
+                </button>
               </div>
             </div>
           </div>

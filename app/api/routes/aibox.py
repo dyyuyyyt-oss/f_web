@@ -19,6 +19,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import os
@@ -751,5 +752,125 @@ def device_report(payload: ReportIn,
         "UPDATE aibox_device SET last_seen=:t, status=:s WHERE device_id=:d"
     ), {"t": _now(), "s": json.dumps(payload.status or {}, ensure_ascii=False),
         "d": payload.device_id})
+    db.commit()
+    return {"ok": True}
+
+# ==========================================================================
+# 网页对话 —— 反向通道
+#
+# 浏览器发一句话 → 云端进队列 → 你电脑上的桥接「长轮询」取走
+# → 调本机 http://127.0.0.1:8003/local/chat（真流水线：角色人格 + 本地记忆 + DeepSeek）
+# → 结果回传云端 → 网页拿到回复。
+#
+# 为什么用长轮询而不是 WebSocket：
+#   电脑在家里，没有公网入口，只能往外连。长轮询是最不容易坏的反向通道，
+#   也不用在云端维护连接状态（Render 免费档只有一个实例，本来就是无状态更稳）。
+# ==========================================================================
+def _ensure_chat_table(db: Session) -> None:
+    pk = "INTEGER PRIMARY KEY AUTOINCREMENT" if _dialect(db) == "sqlite" else "BIGSERIAL PRIMARY KEY"
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS aibox_chat ("
+        f"id {pk}, role_id INTEGER, device_id VARCHAR(64), "
+        "user_text TEXT, reply TEXT, status VARCHAR(16), "
+        "created_at VARCHAR(32), done_at VARCHAR(32))"
+    ))
+    db.commit()
+
+
+class ChatIn(BaseModel):
+    text: str
+    device_id: str = DEFAULT_DEVICE
+
+
+class TaskResultIn(BaseModel):
+    reply: str = ""
+    error: str = ""
+
+
+@router.post("/aibox/roles/{rid}/chat", summary="AI BOX · 给硬件上的角色发一句话")
+def post_chat(rid: int, payload: ChatIn, db: Session = Depends(get_db),
+              user: User = Depends(get_current_user)):
+    _ensure_tables(db)
+    _ensure_chat_table(db)
+    # 变量名不能叫 text，会遮蔽 sqlalchemy.text
+    say = (payload.text or "").strip()[:2000]
+    if not say:
+        raise HTTPException(status_code=422, detail="消息不能为空")
+    row = db.execute(text(
+        "SELECT " + ROLE_COLS + " FROM aibox_role WHERE id=:i"), {"i": rid}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="角色不存在")
+    db.execute(text(
+        "INSERT INTO aibox_chat(role_id, device_id, user_text, reply, status, created_at) "
+        "VALUES(:r,:d,:t,'','pending',:c)"
+    ), {"r": rid, "d": payload.device_id, "t": say, "c": _now()})
+    db.commit()
+    new = db.execute(text(
+        "SELECT id FROM aibox_chat WHERE device_id=:d ORDER BY id DESC LIMIT 1"
+    ), {"d": payload.device_id}).fetchone()
+    return {"ok": True, "task_id": new[0] if new else None}
+
+
+@router.get("/aibox/chat/{tid}", summary="AI BOX · 取一条对话的结果")
+def get_chat(tid: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _ensure_tables(db)
+    _ensure_chat_table(db)
+    row = db.execute(text(
+        "SELECT id, user_text, reply, status, created_at, done_at FROM aibox_chat WHERE id=:i"
+    ), {"i": tid}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="消息不存在")
+    return {"id": row[0], "user_text": row[1], "reply": row[2] or "",
+            "status": row[3], "created_at": row[4], "done_at": row[5] or ""}
+
+
+@router.get("/aibox/roles/{rid}/chat/history", summary="AI BOX · 对话历史")
+def chat_history(rid: int, limit: int = 40, db: Session = Depends(get_db),
+                 user: User = Depends(get_current_user)):
+    _ensure_tables(db)
+    _ensure_chat_table(db)
+    rows = db.execute(text(
+        "SELECT id, user_text, reply, status, created_at FROM aibox_chat "
+        "WHERE role_id=:r AND status='done' ORDER BY id DESC LIMIT :n"
+    ), {"r": rid, "n": max(1, min(200, limit))}).fetchall()
+    out = []
+    for r in reversed(rows):
+        out.append({"id": r[0], "user_text": r[1], "reply": r[2], "created_at": r[4]})
+    return {"messages": out}
+
+
+@router.get("/aibox/device/tasks/wait", summary="硬件桥接 · 长轮询取待回答的消息（设备令牌）")
+async def wait_tasks(device_id: str = DEFAULT_DEVICE, timeout: int = 20,
+                     x_device_token: str | None = Header(default=None, alias="X-Device-Token"),
+                     db: Session = Depends(get_db)):
+    _require_device(x_device_token)
+    _ensure_tables(db)
+    _ensure_chat_table(db)
+    deadline = time.time() + max(1, min(timeout, 25))
+    while time.time() < deadline:
+        row = db.execute(text(
+            "SELECT id, role_id, user_text FROM aibox_chat "
+            "WHERE device_id=:d AND status='pending' ORDER BY id ASC LIMIT 1"
+        ), {"d": device_id}).fetchone()
+        if row:
+            db.execute(text("UPDATE aibox_chat SET status='running' WHERE id=:i"), {"i": row[0]})
+            db.commit()
+            return {"tasks": [{"id": row[0], "role_id": row[1], "text": row[2]}]}
+        db.commit()
+        await asyncio.sleep(0.6)
+    return {"tasks": []}
+
+
+@router.post("/aibox/device/tasks/{tid}/result", summary="硬件桥接 · 回传回答（设备令牌）")
+def task_result(tid: int, payload: TaskResultIn,
+                x_device_token: str | None = Header(default=None, alias="X-Device-Token"),
+                db: Session = Depends(get_db)):
+    _require_device(x_device_token)
+    _ensure_chat_table(db)
+    status = "done" if payload.reply and not payload.error else "error"
+    reply = (payload.reply or payload.error or "")[:8000]
+    db.execute(text(
+        "UPDATE aibox_chat SET reply=:r, status=:s, done_at=:t WHERE id=:i"
+    ), {"r": reply, "s": status, "t": _now(), "i": tid})
     db.commit()
     return {"ok": True}

@@ -110,3 +110,22 @@ export async function getDevice(deviceId = 'box-01') {
   const res = await authFetch(`/api/aibox/device?device_id=${deviceId}`)
   return jsonOrThrow(res, '读取硬件状态失败')
 }
+export async function postChat(roleId, text, deviceId = 'box-01') {
+  const res = await authFetch(`/api/aibox/roles/${roleId}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, device_id: deviceId }),
+  })
+  return jsonOrThrow(res, '发送失败')
+}
+
+export async function getChat(taskId) {
+  const res = await authFetch(`/api/aibox/chat/${taskId}`)
+  return jsonOrThrow(res, '读取回复失败')
+}
+
+export async function chatHistory(roleId) {
+  const res = await authFetch(`/api/aibox/roles/${roleId}/chat/history`)
+  const data = await jsonOrThrow(res, '加载对话失败')
+  return data.messages || []
+}
