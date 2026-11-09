@@ -886,7 +886,7 @@ def _mem_write(db: Session, content: str, kind: str, importance: float) -> dict:
             if s > best:
                 best, conflict_id = s, r[0]
     # 高相似但内容不同 → 旧条目标记被取代（原文保留）
-    thr_used = 0.82 if key_c else 0.72
+    thr_used = 0.75 if key_c else 0.72
     superseded = conflict_id if (best > thr_used and conflict_id) else None
 
     db.execute(text(
