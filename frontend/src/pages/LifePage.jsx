@@ -24,6 +24,9 @@ export default function LifePage() {
   const [refusal, setRefusal] = useState('')
   const [listening, setListening] = useState(false)
   const [recording, setRecording] = useState(false)
+  const [asrSupported, setAsrSupported] = useState(true)
+  const [interim, setInterim] = useState('')
+  const recogRef = useRef(null)
   const [level, setLevel] = useState(0)
   const [lastClip, setLastClip] = useState(null)
   const recRef = useRef(null)
@@ -82,6 +85,11 @@ export default function LifePage() {
         }
       } catch (e) { /* 忽略 */ }
     })()
+  }, [])
+
+  useEffect(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    setAsrSupported(!!SR)
   }, [])
 
   useEffect(() => {
@@ -286,6 +294,45 @@ export default function LifePage() {
     })()
     return () => { dead = true }
   }, [say, speakOn, voice, sending])
+
+  const startRecognition = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) return
+    if (recording) { try { recogRef.current && recogRef.current.stop() } catch (e) {} return }
+    const rec = new SR()
+    rec.lang = 'zh-CN'
+    rec.interimResults = true
+    rec.continuous = false
+    rec.onresult = (ev) => {
+      let finalText = ''
+      let partial = ''
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const t = ev.results[i][0].transcript
+        if (ev.results[i].isFinal) finalText += t
+        else partial += t
+      }
+      setInterim(partial)
+      if (finalText) {
+        setDraft((d) => (d ? d + ' ' : '') + finalText)
+        setInterim('')
+      }
+    }
+    rec.onerror = (ev) => {
+      setRecording(false)
+      setInterim('')
+      setRefusal('识别失败：' + (ev.error || '未知'))
+    }
+    rec.onend = () => { setRecording(false); setInterim('') }
+    recogRef.current = rec
+    rec.start()
+    setRecording(true)
+    setRefusal('')
+  }
+
+  const mic = () => {
+    if (asrSupported) startRecognition()
+    else startRecording()
+  }
 
   const startRecording = async () => {
     if (recording) {
@@ -520,7 +567,18 @@ export default function LifePage() {
                   <div key={i} className={'life-bubble ' + (m.role === 'user' ? 'me' : 'bot')}>{m.text}</div>
                 ))}
               </div>
-              {recording && (
+              {!asrSupported && (
+                <div className="life-asr-note">
+                  语音识别仅支持 <b>Chrome / Edge</b>（含安卓版）；Safari、Firefox 请用文字输入。
+                </div>
+              )}
+              {recording && asrSupported && (
+                <div className="life-rec">
+                  <span className="rec-dot" />
+                  <span className="rec-txt">{interim ? '「' + interim + '」' : '在听…'}</span>
+                </div>
+              )}
+              {recording && !asrSupported && (
                 <div className="life-rec">
                   <span className="rec-dot" />
                   <div className="rec-meter"><div style={{ width: (level * 100).toFixed(0) + '%' }} /></div>
@@ -540,8 +598,8 @@ export default function LifePage() {
             <div className="life-dock">
               <button
                 className={'life-btn' + (recording ? ' on' : '')}
-                title={recording ? '再点一下结束' : '按住说话'}
-                onClick={startRecording}
+                title={recording ? '再点一下结束' : (asrSupported ? '语音输入（说完自动填字）' : '录音（此浏览器不支持识别）')}
+                onClick={mic}
               >{recording ? '■' : '🎤'}</button>
               <button className={'life-btn' + (speakOn ? ' on' : '')} title="朗读回复"
                 onClick={() => setSpeakOn((v) => !v)}>{speakOn ? '🔊' : '🔇'}</button>
