@@ -864,6 +864,7 @@ def _mem_write(db: Session, content: str, kind: str, importance: float) -> dict:
     )).fetchall()
 
     conflict_id = None
+    conflict_text = ""
     best = 0.0
     key_c, base_c, model_c = _embed_cfg(db)
     if key_c:
@@ -885,9 +886,19 @@ def _mem_write(db: Session, content: str, kind: str, importance: float) -> dict:
             s = _sim(grams, _bigrams(r[2]))
             if s > best:
                 best, conflict_id = s, r[0]
+    if conflict_id:
+        row_t = db.execute(text("SELECT text FROM pet_episodes WHERE id=:i"), {"i": conflict_id}).fetchone()
+        conflict_text = (row_t[0] if row_t else "") or ""
     # 高相似但内容不同 → 旧条目标记被取代（原文保留）
-    thr_used = 0.75 if key_c else 0.72
-    superseded = conflict_id if (best > thr_used and conflict_id) else None
+    # 双信号：高相似(0.82) 直接取代；相似 0.62~0.82 但否定词极性相反，也判为冲突
+    import re as _rr
+    neg_new = bool(_rr.search(r"[不没别甭]", content))
+    neg_old = bool(_rr.search(r"[不没别甭]", conflict_text))
+    thr_used = 0.72 if key_c else 0.72
+    hit = best > (0.82 if key_c else 0.72)
+    if not hit and key_c and best > 0.62 and conflict_id and (neg_new != neg_old):
+        hit = True
+    superseded = conflict_id if (hit and conflict_id) else None
 
     db.execute(text(
         "INSERT INTO pet_episodes(kind, text, importance, hits, last_hit, created_at, superseded_by, archived, entities) "
