@@ -3,13 +3,13 @@
 .ops-veil{position:absolute;inset:0;pointer-events:none;
   background:linear-gradient(90deg,rgba(1,6,12,.72) 0%,rgba(1,6,12,.18) 26%,rgba(1,6,12,0) 55%),
              linear-gradient(0deg,rgba(1,6,12,.55) 0%,rgba(1,6,12,0) 26%)}
-.ops-head{position:absolute;top:24px;left:32px;z-index:4}
-.ops-title{font-size:15px;letter-spacing:4px;color:#d6fff4;font-weight:600;text-shadow:0 0 18px rgba(90,240,215,.45)}
-.ops-title i{color:#4fd8c0;font-style:normal}
-.ops-sub{margin-top:6px;font-size:10px;letter-spacing:2px;color:#4f8f88}
-.ops-strip{position:absolute;left:32px;bottom:26px;z-index:4;display:flex;gap:26px}
-.ops-strip span{display:flex;flex-direction:column;gap:2px;font-size:9.5px;letter-spacing:2px;color:#437f79}
-.ops-strip b{font-size:16px;color:#c7fbf0;letter-spacing:1px;text-shadow:0 0 14px rgba(90,240,215,.35)}
+
+
+
+
+
+
+
 .ops-rail{position:absolute;right:24px;top:50%;transform:translateY(-50%);z-index:6;display:flex;flex-direction:column;gap:9px;
   animation:opsIn .8s cubic-bezier(.2,.8,.2,1) both}
 .ops-btn{width:162px;padding:11px 15px;text-align:left;cursor:pointer;background:rgba(6,22,26,.32);
@@ -26,10 +26,10 @@
 .ops-credit a:hover{color:#7ff2dd}
 @keyframes opsIn{from{opacity:0;transform:translate(24px,-50%)}to{opacity:1;transform:translate(0,-50%)}}
 @media (max-width:900px){
-  .ops-head{top:16px;left:16px}
-  .ops-title{font-size:11.5px;letter-spacing:2px}
-  .ops-strip{left:16px;bottom:80px;gap:16px}
-  .ops-strip b{font-size:13px}
+  
+  
+  
+  
   .ops-rail{top:auto;bottom:12px;left:12px;right:12px;transform:none;flex-direction:row;overflow-x:auto;animation:none}
   .ops-btn{width:auto;min-width:92px;padding:8px 10px}
   .ops-credit{display:none}

@@ -16,7 +16,7 @@ const MENU = [
 export default function NeuralHomePage() {
   const nav = useNavigate()
   const { user, logout } = useAuth()
-  const [stat, setStat] = useState({ mem: 0, v: null, spot: '', act: '' })
+  const [stat, setStat] = useState({ mem: 0 })
   const [entry, setEntry] = useState('/haloflux/lab.html')
   const box = useRef(null)
 
@@ -33,14 +33,13 @@ export default function NeuralHomePage() {
   useEffect(() => {
     let alive = true
     const load = async () => {
-      const o = { mem: 0, v: null, spot: '', act: '' }
+      const o = { mem: 0 }
       try {
-        const [m, v, s] = await Promise.all([
-          authFetch('/api/life/memory'), authFetch('/api/life/vitals'), authFetch('/api/life/space'),
+        const [m, s] = await Promise.all([
+          authFetch('/api/life/memory'), authFetch('/api/life/space'),
         ])
         if (m.ok) o.mem = (await m.json()).total || 0
-        if (v.ok) o.v = await v.json()
-        if (s.ok) { const sj = await s.json(); o.spot = sj.spot_name || ''; o.act = sj.act || '' }
+        void s
       } catch (e) {}
       if (alive) setStat(o)
     }
@@ -49,26 +48,11 @@ export default function NeuralHomePage() {
     return () => { alive = false; clearInterval(t) }
   }, [])
 
-  const v = stat.v
-  const d = v ? v.derived : null
-
   return (
     <div className="ops-root">
       <iframe ref={box} className="ops-frame" src={entry} title="haloflux" scrolling="no" />
 
       <div className="ops-veil" />
-
-      <header className="ops-head">
-        <div className="ops-title">AGENT OPS <i>/</i> DISPATCH CENTER</div>
-        <div className="ops-sub">大肥鱼 · DIGITAL LIFE · MEM {stat.mem}</div>
-      </header>
-
-      <div className="ops-strip">
-        <span><b>{stat.mem || '—'}</b>记忆</span>
-        <span><b>{d ? Math.round(d.energy * 100) : '—'}</b>精力</span>
-        <span><b>{d ? Math.round(d.mood * 100) : '—'}</b>心情</span>
-        <span><b>{stat.spot || '—'}</b>{stat.act || '位置'}</span>
-      </div>
 
       <nav className="ops-rail">
         {MENU.map((m) => (
@@ -83,7 +67,7 @@ export default function NeuralHomePage() {
         </button>
       </nav>
 
-      <div className="ops-credit">
+      <div className="ops-credit">MEM {stat.mem} · 
         visual · HALOFLUX by Ryder191（非商业授权） · <a href="https://github.com/Ryder191/haloflux" target="_blank" rel="noreferrer">来源</a>
       </div>
     </div>
