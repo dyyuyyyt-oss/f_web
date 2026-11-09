@@ -891,10 +891,10 @@ def _mem_write(db: Session, content: str, kind: str, importance: float) -> dict:
             ), {"a": str(new_id), "b": str(r[0]), "w": w, "t": now})
     db.commit()
     try:
-        key = _embed_key(db)
+        key, _b, _m = _embed_cfg(db)
         if key:
             _ensure_vec_col(db)
-            v = _embed([content[:400]], key)
+            v = _embed([content[:400]], key, _b, _m)
             if v:
                 db.execute(text("UPDATE pet_episodes SET vec=:v WHERE id=:i"),
                            {"v": json.dumps(v[0]), "i": new_id})
@@ -913,11 +913,11 @@ def _decay(imp: float, kind: str, created: float) -> float:
 
 def _mem_search(db: Session, q: str, k: int = 5) -> list:
     _mem_tables(db)
-    key = _embed_key(db)
+    key, _b, _m = _embed_cfg(db)
     qvec = None
     if key:
         _ensure_vec_col(db)
-        got = _embed([q[:400]], key)
+        got = _embed([q[:400]], key, _b, _m)
         qvec = got[0] if got else None
     grams = _bigrams(q)
     rows = db.execute(text(
@@ -1261,13 +1261,43 @@ def _cos(a: list, b: list) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 
-def _embed(texts: list, key: str) -> list:
-    """调硅基流动 bge-m3，失败返回空列表。"""
+EMBED_DEFAULT_BASE = "https://api.siliconflow.cn/v1/embeddings"
+EMBED_DEFAULT_MODEL = "BAAI/bge-m3"
+
+
+def _embed_cfg(db: Session) -> tuple:
+    """返回 (key, base_url, model)。优先级：数据库 > 环境变量 > 默认硅基流动。"""
+    import os
+    key = base = model = ""
+    try:
+        _pet_table(db)
+        rows = db.execute(text("SELECT k, v FROM pet_settings WHERE k IN ('embed_key','embed_base','embed_model')")).fetchall()
+        cfg = {}
+        for k, v in rows:
+            try:
+                cfg[k] = json.loads(v)
+            except Exception:
+                cfg[k] = v
+        key = cfg.get("embed_key", "")
+        base = cfg.get("embed_base", "")
+        model = cfg.get("embed_model", "")
+    except Exception:
+        pass
+    key = key or os.environ.get("EMBED_API_KEY", "")
+    base = base or os.environ.get("EMBED_BASE_URL", "") or EMBED_DEFAULT_BASE
+    model = model or os.environ.get("EMBED_MODEL", "") or EMBED_DEFAULT_MODEL
+    return key, base, model
+
+
+def _embed(texts: list, key: str, base: str = "", model: str = "") -> list:
+    """调 embedding 接口，失败返回空列表。"""
     if not key or not texts:
         return []
     import urllib.request as _u
-    payload = json.dumps({"model": "BAAI/bge-m3", "input": texts}).encode()
-    req = _u.Request("https://api.siliconflow.cn/v1/embeddings", data=payload, method="POST",
+    base = base or EMBED_DEFAULT_BASE
+    model = model or EMBED_DEFAULT_MODEL
+    payload = json.dumps({"model": model, "input": texts}).encode()
+    req = _u.Request(base, data=payload, method="POST",
                      headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
     try:
         with _u.urlopen(req, timeout=20) as resp:
@@ -1289,6 +1319,8 @@ def _ensure_vec_col(db: Session) -> None:
 
 class EmbedKeyIn(BaseModel):
     key: str
+    base: str = ""
+    model: str = ""
 
 
 @router.post("/life/embed-key", summary="记忆模型 Key")
@@ -1299,13 +1331,20 @@ def set_embed_key(payload: EmbedKeyIn, user: User = Depends(get_current_user), d
     ), {"v": json.dumps(payload.key.strip())})
     db.commit()
     key = payload.key.strip()
-    ok = bool(key) and bool(_embed(["测试"], key))
+    if payload.base:
+        db.execute(text("INSERT INTO pet_settings(k, v) VALUES('embed_base', :v) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v"), {"v": json.dumps(payload.base.strip())})
+    if payload.model:
+        db.execute(text("INSERT INTO pet_settings(k, v) VALUES('embed_model', :v) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v"), {"v": json.dumps(payload.model.strip())})
+    db.commit()
+    k2, b2, m2 = _embed_cfg(db)
+    ok = bool(k2) and bool(_embed(["测试"], k2, b2, m2))
     return {"ok": True, "usable": ok}
 
 
 @router.get("/life/embed-status", summary="记忆模型状态")
 def embed_status(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    key = _embed_key(db)
+    key, base, model = _embed_cfg(db)
     if not key:
         return {"mode": "bigram", "usable": False, "hint": "没设 Key，按字面检索"}
-    return {"mode": "embedding", "usable": bool(_embed(["测试"], key)), "hint": "bge-m3"}
+    return {"mode": "embedding", "usable": bool(_embed(["测试"], key, base, model)),
+            "model": model, "base": base}
