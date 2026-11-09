@@ -5,6 +5,7 @@ import LoginPage from './pages/LoginPage'
 import AdminDashboard from './pages/AdminDashboard'
 import ChatPage from './pages/ChatPage'
 import HomePage from './pages/HomePage'
+import NeuralHomePage from './pages/NeuralHomePage'
 import GroupPage from './pages/GroupPage'
 import LifePage from './pages/LifePage'
 import AiBoxPage from './pages/AiBoxPage'
@@ -18,6 +19,14 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route
             path="/"
+            element={
+              <ProtectedRoute>
+                <NeuralHomePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/hall"
             element={
               <ProtectedRoute>
                 <HomePage />
