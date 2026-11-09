@@ -23,6 +23,12 @@ export default function LifePage() {
   const [space, setSpace] = useState(null)
   const [refusal, setRefusal] = useState('')
   const [listening, setListening] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const [level, setLevel] = useState(0)
+  const [lastClip, setLastClip] = useState(null)
+  const recRef = useRef(null)
+  const chunksRef = useRef([])
+  const meterRef = useRef(null)
   const navigate = useNavigate()
   const audioRef = useRef(null)
   const [draft, setDraft] = useState('')
@@ -281,6 +287,50 @@ export default function LifePage() {
     return () => { dead = true }
   }, [say, speakOn, voice, sending])
 
+  const startRecording = async () => {
+    if (recording) {
+      recRef.current && recRef.current.stop()
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      const src = ctx.createMediaStreamSource(stream)
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 512
+      src.connect(analyser)
+      const buf = new Uint8Array(analyser.frequencyBinCount)
+      const tick = () => {
+        analyser.getByteTimeDomainData(buf)
+        let sum = 0
+        for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v }
+        setLevel(Math.min(1, Math.sqrt(sum / buf.length) * 3.2))
+        meterRef.current = requestAnimationFrame(tick)
+      }
+      tick()
+
+      const rec = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '' })
+      chunksRef.current = []
+      rec.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data) }
+      rec.onstop = () => {
+        cancelAnimationFrame(meterRef.current)
+        stream.getTracks().forEach((t) => t.stop())
+        ctx.close()
+        setRecording(false)
+        setLevel(0)
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        setLastClip({ size: blob.size, url: URL.createObjectURL(blob), at: Date.now() })
+        setDraft((d) => d || '[语音] ')
+      }
+      recRef.current = rec
+      rec.start()
+      setRecording(true)
+      setRefusal('')
+    } catch (e) {
+      setRefusal('麦克风打不开：' + (e.message || e.name))
+    }
+  }
+
   const startVoiceInput = () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) { setSay('这个浏览器不支持语音输入，换 Edge/Chrome 试试'); return }
@@ -470,16 +520,29 @@ export default function LifePage() {
                   <div key={i} className={'life-bubble ' + (m.role === 'user' ? 'me' : 'bot')}>{m.text}</div>
                 ))}
               </div>
+              {recording && (
+                <div className="life-rec">
+                  <span className="rec-dot" />
+                  <div className="rec-meter"><div style={{ width: (level * 100).toFixed(0) + '%' }} /></div>
+                  <span className="rec-txt">录音中</span>
+                </div>
+              )}
+              {lastClip && !recording && (
+                <div className="life-clip">
+                  <audio src={lastClip.url} controls />
+                  <span>{(lastClip.size / 1024).toFixed(1)} KB</span>
+                </div>
+              )}
               <div className="life-sub">
                 <span className="who">大肥鱼</span>{sending ? '正在想说…' : say}
               </div>
             </div>
             <div className="life-dock">
               <button
-                className={'life-btn' + (listening ? ' on' : '')}
-                title={listening ? '正在听…' : '语音输入'}
-                onClick={startVoiceInput}
-              >{listening ? '●' : '🎤'}</button>
+                className={'life-btn' + (recording ? ' on' : '')}
+                title={recording ? '再点一下结束' : '按住说话'}
+                onClick={startRecording}
+              >{recording ? '■' : '🎤'}</button>
               <button className={'life-btn' + (speakOn ? ' on' : '')} title="朗读回复"
                 onClick={() => setSpeakOn((v) => !v)}>{speakOn ? '🔊' : '🔇'}</button>
               <select className="life-voice" value={voice} onChange={(e) => { setVoice(e.target.value); saveVoice(e.target.value) }}

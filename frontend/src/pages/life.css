@@ -218,3 +218,14 @@
 .life-call .meta b{font-size:17px;letter-spacing:4px}
 .life-call .meta span{opacity:.75}
 .life-call{background:radial-gradient(120% 90% at 50% 30%, #1b2c52 0%, #0b1226 55%, #060a14 100%)}
+
+.life-rec{position:absolute;left:16px;right:16px;bottom:118px;display:flex;align-items:center;gap:8px;
+  background:rgba(8,14,28,.86);border:1px solid rgba(246,105,92,.35);border-radius:12px;padding:8px 12px;z-index:3}
+.rec-dot{width:8px;height:8px;border-radius:50%;background:#f2695c;animation:pulse 1s infinite}
+.rec-meter{flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
+.rec-meter div{height:100%;background:linear-gradient(90deg,#5ec8f2,#f6c04a);transition:width .08s linear}
+.rec-txt{font-size:11px;color:#f2a7a1;letter-spacing:1px}
+.life-clip{position:absolute;left:16px;right:16px;bottom:118px;display:flex;align-items:center;gap:10px;
+  background:rgba(8,14,28,.86);border:1px solid var(--life-line);border-radius:12px;padding:6px 10px;z-index:3}
+.life-clip audio{flex:1;height:32px}
+.life-clip span{font-size:11px;color:var(--life-dim)}
