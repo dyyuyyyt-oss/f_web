@@ -85,13 +85,13 @@ def deepseek_balance():
 
 
 VOICES = [
+    {"id": "zh-CN-XiaoxiaoNeural", "name": "晓晓", "desc": "成熟温柔 · 御姐（默认）"},
     {"id": "zh-CN-XiaoyiNeural", "name": "晓伊", "desc": "少女，清亮"},
-    {"id": "zh-CN-XiaoxiaoNeural", "name": "晓晓", "desc": "温柔，播音"},
     {"id": "zh-CN-XiaobeiNeural", "name": "晓北", "desc": "活泼，东北"},
-    {"id": "zh-CN-XiaomoNeural", "name": "晓墨", "desc": "沉静，御姐"},
-    {"id": "zh-CN-XiaohanNeural", "name": "晓涵", "desc": "温婉，故事感"},
+    {"id": "zh-TW-HsiaoChenNeural", "name": "曉臻", "desc": "台湾腔，软"},
+    {"id": "zh-HK-HiuMaanNeural", "name": "曉曼", "desc": "粤语女声"},
     {"id": "zh-CN-YunxiNeural", "name": "云希", "desc": "清朗少年"},
-    {"id": "zh-TW-HsiaoChenNeural", "name": "曉臻", "desc": "台湾腔"},
+    {"id": "zh-CN-YunjianNeural", "name": "云健", "desc": "低沉男声"},
 ]
 
 
@@ -429,7 +429,7 @@ async def life_chat(payload: ChatIn, db: Session = Depends(get_db), user: User =
 
 
 # ---------------- 机器人可调参数（网页里改，机器人轮询生效） ----------------
-DEFAULT_PET = {"voice": "zh-CN-XiaoruiNeural", "prob": 0.18, "delay_min": 2.5, "delay_max": 6.5}
+DEFAULT_PET = {"voice": "zh-CN-XiaoxiaoNeural", "prob": 0.18, "delay_min": 2.5, "delay_max": 6.5}
 
 
 def _pet_table(db: Session) -> None:
