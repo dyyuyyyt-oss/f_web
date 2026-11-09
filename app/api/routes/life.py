@@ -865,12 +865,29 @@ def _mem_write(db: Session, content: str, kind: str, importance: float) -> dict:
 
     conflict_id = None
     best = 0.0
-    for r in rows:
-        s = _sim(grams, _bigrams(r[2]))
-        if s > best:
-            best, conflict_id = s, r[0]
+    key_c, base_c, model_c = _embed_cfg(db)
+    if key_c:
+        _ensure_vec_col(db)
+        cv = _embed([content[:400]], key_c, base_c, model_c)
+        if cv:
+            vr = db.execute(text(
+                "SELECT id, vec FROM pet_episodes WHERE vec IS NOT NULL AND vec != '' AND superseded_by IS NULL"
+            )).fetchall()
+            for row in vr:
+                try:
+                    s = _cos(cv[0], json.loads(row[1]))
+                except Exception:
+                    continue
+                if s > best:
+                    best, conflict_id = s, row[0]
+    if not conflict_id:
+        for r in rows:
+            s = _sim(grams, _bigrams(r[2]))
+            if s > best:
+                best, conflict_id = s, r[0]
     # 高相似但内容不同 → 旧条目标记被取代（原文保留）
-    superseded = conflict_id if (best > 0.72 and conflict_id) else None
+    thr_used = 0.82 if key_c else 0.72
+    superseded = conflict_id if (best > thr_used and conflict_id) else None
 
     db.execute(text(
         "INSERT INTO pet_episodes(kind, text, importance, hits, last_hit, created_at, superseded_by, archived, entities) "
