@@ -1296,13 +1296,23 @@ def _embed(texts: list, key: str, base: str = "", model: str = "") -> list:
     import urllib.request as _u
     base = base or EMBED_DEFAULT_BASE
     model = model or EMBED_DEFAULT_MODEL
-    payload = json.dumps({"model": model, "input": texts}).encode()
-    req = _u.Request(base, data=payload, method="POST",
-                     headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+    multimodal = "multimodal" in base
+    headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
+    out = []
     try:
-        with _u.urlopen(req, timeout=20) as resp:
-            data = json.loads(resp.read().decode())
-        return [d["embedding"] for d in data["data"]]
+        for t in texts:
+            if multimodal:
+                payload = json.dumps({"model": model, "input": [{"type": "text", "text": t}]}).encode()
+            else:
+                payload = json.dumps({"model": model, "input": [t]}).encode()
+            req = _u.Request(base, data=payload, method="POST", headers=headers)
+            with _u.urlopen(req, timeout=25) as resp:
+                data = json.loads(resp.read().decode())
+            if multimodal:
+                out.append(data["data"]["embedding"])
+            else:
+                out.append(data["data"][0]["embedding"])
+        return out
     except Exception as exc:
         import logging
         logging.getLogger(__name__).warning("embed 失败: %s", exc)
@@ -1339,6 +1349,26 @@ def set_embed_key(payload: EmbedKeyIn, user: User = Depends(get_current_user), d
     k2, b2, m2 = _embed_cfg(db)
     ok = bool(k2) and bool(_embed(["测试"], k2, b2, m2))
     return {"ok": True, "usable": ok}
+
+
+@router.post("/life/memory/backfill", summary="回填记忆向量")
+def mem_backfill(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _mem_tables(db)
+    key, base, model = _embed_cfg(db)
+    if not key:
+        return {"ok": False, "error": "没有 embedding Key"}
+    _ensure_vec_col(db)
+    rows = db.execute(text(
+        "SELECT id, text FROM pet_episodes WHERE (vec IS NULL OR vec = '') AND superseded_by IS NULL"
+    )).fetchall()
+    done = 0
+    for r in rows:
+        v = _embed([(r[1] or "")[:400]], key, base, model)
+        if v:
+            db.execute(text("UPDATE pet_episodes SET vec=:v WHERE id=:i"), {"v": json.dumps(v[0]), "i": r[0]})
+            done += 1
+    db.commit()
+    return {"ok": True, "filled": done, "pending": len(rows) - done}
 
 
 @router.get("/life/embed-status", summary="记忆模型状态")
