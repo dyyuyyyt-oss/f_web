@@ -248,7 +248,7 @@ def life_history(db: Session = Depends(get_db), user: User = Depends(get_current
 
 @router.get("/life/voices", summary="生活面板 · 可选声线")
 def life_voices(user: User = Depends(get_current_user)):
-    ensure_tables(db)
+
     return {"voices": VOICES}
 
 
@@ -296,7 +296,7 @@ async def life_tts(payload: TtsIn, user: User = Depends(get_current_user)):
 
 @router.post("/life/feed", summary="生活面板 · 喂一口")
 def life_feed(user: User = Depends(get_current_user)):
-    ensure_tables(db)
+
     st = load_state()
     st["last_feed"] = time.time()
     st["dopamine"] = min(100, int(st["dopamine"]) + 8)
