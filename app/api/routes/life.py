@@ -895,8 +895,8 @@ def _mem_write(db: Session, content: str, kind: str, importance: float) -> dict:
     neg_new = bool(_rr.search(r"[不没别甭]", content))
     neg_old = bool(_rr.search(r"[不没别甭]", conflict_text))
     thr_used = 0.72 if key_c else 0.72
-    hit = best > (0.82 if key_c else 0.72)
-    if not hit and key_c and best > 0.62 and conflict_id and (neg_new != neg_old):
+    hit = best > (0.62 if key_c else 0.72)
+    if not hit and key_c and best > 0.58 and conflict_id and (neg_new != neg_old) and kind in ("preference","fact","boundary"):
         hit = True
     superseded = conflict_id if (hit and conflict_id) else None
 
