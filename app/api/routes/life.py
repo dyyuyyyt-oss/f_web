@@ -255,16 +255,31 @@ def life_voices(user: User = Depends(get_current_user)):
 class TtsIn(BaseModel):
     text: str
     voice: str = "zh-CN-XiaoyiNeural"
-    rate: str = "+0%"
-    pitch: str = "+0Hz"
+    rate: str = "-4%"
+    pitch: str = "-6Hz"
 
+
+def _tts_clean(text: str) -> str:
+    """朗读前清洗：去掉动作括号/表情/markdown，避免念出"吐个泡泡"。"""
+    import re as _r
+    t = text or ""
+    t = _r.sub(r"（[^）]{0,20}）|\([^)]{0,20}\)", "，", t)
+    t = _r.sub(r"[*_#>~\[\]]", "", t)
+    t = t.replace(chr(96), "")
+    t = _r.sub(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]", "", t)
+    t = _r.sub(r"…+", "。", t)
+    t = _r.sub(r"[，,、]{2,}", "，", t)
+    t = _r.sub(r"\s+", "", t)
+    if t and t[-1] not in "。！？!?":
+        t += "。"
+    return t.strip("，。 ")[:300]
 
 @router.post("/life/tts", summary="生活面板 · 神经语音合成")
 async def life_tts(payload: TtsIn, user: User = Depends(get_current_user)):
     import edge_tts
     from fastapi.responses import Response
 
-    text = (payload.text or "").strip()[:300]
+    text = _tts_clean(payload.text)
     if not text:
         return Response(status_code=400)
     try:

@@ -16,7 +16,7 @@ export default function LifePage() {
   const [stats, setStats] = useState({ memories: 0, episodes: 0, days: 0, relations: 0 })
   const [say, setSay] = useState('…')
   const [msgs, setMsgs] = useState([])
-  const [speakOn, setSpeakOn] = useState(false)
+  const [speakOn, setSpeakOn] = useState(true)
   const [voice, setVoice] = useState('zh-CN-XiaoyiNeural')
   const [voices, setVoices] = useState([])
   const [vitals, setVitals] = useState(null)
@@ -34,6 +34,10 @@ export default function LifePage() {
   const meterRef = useRef(null)
   const navigate = useNavigate()
   const audioRef = useRef(null)
+  const audioCtxRef = useRef(null)
+  const analyserRef = useRef(null)
+  const voiceRafRef = useRef(0)
+  const [voiceLevel, setVoiceLevel] = useState(0)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
 
@@ -275,7 +279,7 @@ export default function LifePage() {
         const r = await authFetch('/api/life/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: say, voice, rate: '+2%', pitch: '+18Hz' }),
+          body: JSON.stringify({ text: say, voice, rate: '-4%', pitch: '-6Hz' }),
         })
         if (!r.ok) throw new Error('tts ' + r.status)
         const blob = await r.blob()
@@ -283,6 +287,30 @@ export default function LifePage() {
         const url = URL.createObjectURL(blob)
         if (!audioRef.current) audioRef.current = new Audio()
         audioRef.current.src = url
+        try {
+          const AC = window.AudioContext || window.webkitAudioContext
+          if (!audioCtxRef.current) audioCtxRef.current = new AC()
+          const ac = audioCtxRef.current
+          if (!analyserRef.current) {
+            const srcNode = ac.createMediaElementSource(audioRef.current)
+            const an = ac.createAnalyser()
+            an.fftSize = 256
+            srcNode.connect(an)
+            an.connect(ac.destination)
+            analyserRef.current = an
+          }
+          if (ac.state === 'suspended') await ac.resume()
+          const buf = new Uint8Array(analyserRef.current.frequencyBinCount)
+          const loop = () => {
+            analyserRef.current.getByteFrequencyData(buf)
+            let s = 0
+            for (let i = 0; i < buf.length; i++) s += buf[i]
+            setVoiceLevel(Math.min(1, (s / buf.length) / 70))
+            voiceRafRef.current = requestAnimationFrame(loop)
+          }
+          loop()
+          audioRef.current.onended = () => { cancelAnimationFrame(voiceRafRef.current); setVoiceLevel(0) }
+        } catch (e) { /* 分析不可用不影响播放 */ }
         await audioRef.current.play().catch(() => {})
       } catch (e) {
         if (typeof window !== 'undefined' && window.speechSynthesis) {
@@ -557,9 +585,19 @@ export default function LifePage() {
                 
                 <div className="meta"><b>大肥鱼</b><span>在线 · 信号良好</span></div>
                 <div className="life-wave">
-                  {Array.from({ length: 22 }).map((_, i) => (
-                    <span key={i} style={{ animationDelay: (i * 0.07).toFixed(2) + 's' }} />
-                  ))}
+                  {Array.from({ length: 22 }).map((_, i) => {
+                    const shape = 0.35 + 0.65 * Math.abs(Math.sin(i * 0.9))
+                    return (
+                      <span
+                        key={i}
+                        style={{
+                          height: (6 + voiceLevel * 26 * shape).toFixed(1) + 'px',
+                          animation: voiceLevel > 0.02 ? 'none' : undefined,
+                          animationDelay: (i * 0.07).toFixed(2) + 's',
+                        }}
+                      />
+                    )
+                  })}
                 </div>
               </div>
               <div className="life-log" ref={logRef}>
