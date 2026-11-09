@@ -890,6 +890,17 @@ def _mem_write(db: Session, content: str, kind: str, importance: float) -> dict:
                 "INSERT INTO pet_edges(a, b, w, rel, at) VALUES(:a, :b, :w, 'similar', :t)"
             ), {"a": str(new_id), "b": str(r[0]), "w": w, "t": now})
     db.commit()
+    try:
+        key = _embed_key(db)
+        if key:
+            _ensure_vec_col(db)
+            v = _embed([content[:400]], key)
+            if v:
+                db.execute(text("UPDATE pet_episodes SET vec=:v WHERE id=:i"),
+                           {"v": json.dumps(v[0]), "i": new_id})
+                db.commit()
+    except Exception:
+        pass
     return {"ok": True, "id": new_id, "superseded": superseded, "best_sim": round(best, 3)}
 
 
@@ -902,17 +913,36 @@ def _decay(imp: float, kind: str, created: float) -> float:
 
 def _mem_search(db: Session, q: str, k: int = 5) -> list:
     _mem_tables(db)
+    key = _embed_key(db)
+    qvec = None
+    if key:
+        _ensure_vec_col(db)
+        got = _embed([q[:400]], key)
+        qvec = got[0] if got else None
     grams = _bigrams(q)
     rows = db.execute(text(
         "SELECT id, kind, text, importance, hits, created_at FROM pet_episodes "
         "WHERE archived=0 AND superseded_by IS NULL ORDER BY id DESC LIMIT 500"
     )).fetchall()
     scored = []
+    vecs = {}
+    if qvec:
+        vr = db.execute(text("SELECT id, vec FROM pet_episodes WHERE vec IS NOT NULL AND vec != ''")).fetchall()
+        for row in vr:
+            try:
+                vecs[row[0]] = json.loads(row[1])
+            except Exception:
+                pass
     for r in rows:
-        rel = _sim(grams, _bigrams(r[2]))
+        if qvec:
+            rel = max(0.0, _cos(qvec, vecs.get(r[0], [])))
+            thr = 0.45
+        else:
+            rel = _sim(grams, _bigrams(r[2]))
+            thr = 0.12
         d = _decay(r[3], r[1], r[5])
         score = 0.7 * rel + 0.3 * d
-        if rel > 0.12 or r[3] >= 0.75:
+        if rel > thr or r[3] >= 0.75:
             scored.append((score, r))
     scored.sort(key=lambda x: x[0], reverse=True)
     out = []
@@ -1206,3 +1236,76 @@ RISKS = [
 def life_risks(user: User = Depends(get_current_user)):
     return {"items": [{"id": a, "risk": b, "level": c, "mitigation": d, "status": e}
                       for a, b, c, d, e in RISKS]}
+
+
+# ================= Embedding 层（有 Key 就用语义检索，没有就退回字面） =================
+
+def _embed_key(db: Session) -> str:
+    try:
+        _pet_table(db)
+        row = db.execute(text("SELECT v FROM pet_settings WHERE k='embed_key'")).fetchone()
+        if row:
+            return json.loads(row[0])
+    except Exception:
+        pass
+    import os
+    return os.environ.get("EMBED_API_KEY", "")
+
+
+def _cos(a: list, b: list) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(y * y for y in b) ** 0.5
+    return dot / (na * nb) if na and nb else 0.0
+
+
+def _embed(texts: list, key: str) -> list:
+    """调硅基流动 bge-m3，失败返回空列表。"""
+    if not key or not texts:
+        return []
+    import urllib.request as _u
+    payload = json.dumps({"model": "BAAI/bge-m3", "input": texts}).encode()
+    req = _u.Request("https://api.siliconflow.cn/v1/embeddings", data=payload, method="POST",
+                     headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+    try:
+        with _u.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read().decode())
+        return [d["embedding"] for d in data["data"]]
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("embed 失败: %s", exc)
+        return []
+
+
+def _ensure_vec_col(db: Session) -> None:
+    try:
+        db.execute(text("ALTER TABLE pet_episodes ADD COLUMN vec TEXT"))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+class EmbedKeyIn(BaseModel):
+    key: str
+
+
+@router.post("/life/embed-key", summary="记忆模型 Key")
+def set_embed_key(payload: EmbedKeyIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _pet_table(db)
+    db.execute(text(
+        "INSERT INTO pet_settings(k, v) VALUES('embed_key', :v) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v"
+    ), {"v": json.dumps(payload.key.strip())})
+    db.commit()
+    key = payload.key.strip()
+    ok = bool(key) and bool(_embed(["测试"], key))
+    return {"ok": True, "usable": ok}
+
+
+@router.get("/life/embed-status", summary="记忆模型状态")
+def embed_status(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    key = _embed_key(db)
+    if not key:
+        return {"mode": "bigram", "usable": False, "hint": "没设 Key，按字面检索"}
+    return {"mode": "embedding", "usable": bool(_embed(["测试"], key)), "hint": "bge-m3"}
