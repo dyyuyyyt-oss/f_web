@@ -2,196 +2,209 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { authFetch } from '../api/http'
-import './neural.css'
+import './ops.css'
 
 const MENU = [
-  { key: 'chat', label: '对话', path: '/chat', desc: 'AI 对话' },
-  { key: 'group', label: '群聊', path: '/group', desc: '多角色群聊' },
-  { key: 'life', label: '生活面板', path: '/life', desc: '大肥鱼' },
-  { key: 'aibox', label: 'AI 盒子', path: '/aibox', desc: '角色工坊' },
-  { key: 'home', label: '功能大厅', path: '/hall', desc: '全部功能' },
-  { key: 'admin', label: '设置', path: '/admin', desc: '后台管理' },
+  { k: 'chat', l: '对话', p: '/chat' }, { k: 'group', l: '群聊', p: '/group' },
+  { k: 'life', l: '生活面板', p: '/life' }, { k: 'aibox', l: 'AI 盒子', p: '/aibox' },
+  { k: 'home', l: '功能大厅', p: '/hall' }, { k: 'admin', l: '设置', p: '/admin' },
+]
+
+const LOG_LINES = [
+  'FETCH  CHECK COVER ART EXPLORATION', 'FETCH  FETCH LIVE STREAM HIGHLIGHTS',
+  'FETCH  FETCH ADS VECTOR BUILDERS', 'BUILD  BUILD BRAND METRICS ROLLUP',
+  'CHECK  CHECK API ENVELOPE SYNC', 'FETCH  FETCH AGENT TELEMETRY',
+  'BUILD  BUILD MEMORY EMBEDDING', 'CHECK  CHECK VITALS DRIFT',
 ]
 
 export default function NeuralHomePage() {
   const cv = useRef(null)
   const nav = useNavigate()
   const { user, logout } = useAuth()
-  const [stat, setStat] = useState({ mem: 0, vitals: null, spot: '', act: '' })
-  const statRef = useRef({ mem: 0, vitals: null, spot: '', act: '' })
+  const [stat, setStat] = useState({ mem: 0, v: null, spot: '', act: '', ticks: 0 })
+  const ref = useRef({ mem: 0, v: null, spot: '', act: '', ticks: 0 })
 
   useEffect(() => {
     let alive = true
     const load = async () => {
-      const out = { mem: 0, vitals: null, spot: '', act: '' }
+      const o = { mem: 0, v: null, spot: '', act: '', ticks: 0 }
       try {
         const [m, v, s] = await Promise.all([
-          authFetch('/api/life/memory'),
-          authFetch('/api/life/vitals'),
-          authFetch('/api/life/space'),
+          authFetch('/api/life/memory'), authFetch('/api/life/vitals'), authFetch('/api/life/space'),
         ])
-        if (m.ok) out.mem = (await m.json()).total || 0
-        if (v.ok) out.vitals = await v.json()
-        if (s.ok) { const sj = await s.json(); out.spot = sj.spot_name || ''; out.act = sj.act || '' }
-      } catch (e) { /* 离线也不崩 */ }
-      if (alive) { statRef.current = out; setStat(out) }
+        if (m.ok) o.mem = (await m.json()).total || 0
+        if (v.ok) o.v = await v.json()
+        if (s.ok) { const sj = await s.json(); o.spot = sj.spot_name || ''; o.act = sj.act || '' }
+      } catch (e) {}
+      o.ticks = (ref.current.ticks || 0) + 1
+      if (alive) { ref.current = o; setStat(o) }
     }
     load()
-    const timer = setInterval(load, 30000)
-    return () => { alive = false; clearInterval(timer) }
+    const t1 = setInterval(load, 30000)
+    const t2 = setInterval(() => {
+      const o = { ...ref.current, ticks: (ref.current.ticks || 0) + 1 }
+      ref.current = o; setStat(o)
+    }, 1200)
+    return () => { alive = false; clearInterval(t1); clearInterval(t2) }
   }, [])
 
   useEffect(() => {
-    const canvas = cv.current
-    const ctx = canvas.getContext('2d')
+    const c = cv.current
+    const ctx = c.getContext('2d')
     let w = 0, h = 0, raf = 0
-    const lowEnd = (navigator.hardwareConcurrency || 4) <= 4 || window.innerWidth < 640
-    const DPR = lowEnd ? 1 : Math.min(window.devicePixelRatio || 1, 1.5)
-    const nodes = []
-    const pulses = []
+    const low = (navigator.hardwareConcurrency || 4) <= 4 || window.innerWidth < 700
+    const DPR = low ? 1 : Math.min(devicePixelRatio || 1, 1.5)
+    const nodes = [], streams = []
     const resize = () => {
-      const rect = canvas.parentElement.getBoundingClientRect()
-      w = rect.width; h = rect.height
-      canvas.width = w * DPR; canvas.height = h * DPR
-      canvas.style.width = w + 'px'; canvas.style.height = h + 'px'
+      const r = c.parentElement.getBoundingClientRect()
+      w = r.width; h = r.height
+      c.width = w * DPR; c.height = h * DPR
+      c.style.width = w + 'px'; c.style.height = h + 'px'
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
       nodes.length = 0
-      const base = Math.max(34, Math.min(96, Math.floor((w * h) / 19000)))
-      const n = Math.max(24, Math.min(120, base + Math.min(24, statRef.current.mem * 2)))
-      for (let i = 0; i < n; i++) {
-        nodes.push({
-          x: Math.random() * w, y: Math.random() * h,
-          vx: (Math.random() - 0.5) * 0.22, vy: (Math.random() - 0.5) * 0.22,
-          r: 1 + Math.random() * 1.8, hue: Math.random() > 0.82 ? 'pink' : 'cyan',
-        })
-      }
+      const n = Math.max(28, Math.min(80, Math.floor(w * h / 26000) + Math.min(20, ref.current.mem)))
+      for (let i = 0; i < n; i++) nodes.push({
+        a: Math.random() * Math.PI * 2, rad: 90 + Math.random() * 190,
+        sp: (0.0015 + Math.random() * 0.004) * (Math.random() > 0.5 ? 1 : -1),
+        r: 1 + Math.random() * 1.6, pink: Math.random() > 0.85,
+      })
+      streams.length = 0
+      const rows = Math.floor(h / 14)
+      for (let i = 0; i < rows; i++) streams.push({ y: i * 14 + 6, len: 4 + Math.floor(Math.random() * 10), sp: 0.6 + Math.random() * 2.4, off: Math.random() * 40 })
     }
     resize()
-    window.addEventListener('resize', resize)
+    addEventListener('resize', resize)
 
     let t = 0
     const draw = () => {
-      t += 0.006
+      t += 0.012
       ctx.clearRect(0, 0, w, h)
-      const cx = w * 0.36, cy = h * 0.5
+      const cx = w * 0.34, cy = h * 0.46, R = Math.min(w, h) * 0.42
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 1.6)
+      g.addColorStop(0, 'rgba(10,50,60,.55)'); g.addColorStop(.5, 'rgba(4,14,22,.85)'); g.addColorStop(1, 'rgba(2,4,8,1)')
+      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h)
 
-      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * 0.7)
-      g.addColorStop(0, 'rgba(20,60,80,0.35)')
-      g.addColorStop(0.45, 'rgba(8,20,32,0.6)')
-      g.addColorStop(1, 'rgba(3,6,12,0.95)')
-      ctx.fillStyle = g
-      ctx.fillRect(0, 0, w, h)
-
-      const vit = statRef.current.vitals
-      const gauges = vit && vit.derived
-        ? [vit.derived.energy, vit.derived.mood, 1 - vit.derived.stress]
-        : [0.5, 0.5, 0.5]
+      // 流束（右侧数据雨）
+      const sx = w * 0.62
       ctx.save()
-      ctx.translate(cx, cy)
-      for (let k = 0; k < 3; k++) {
-        const rad = 88 + k * 62
-        ctx.beginPath()
-        ctx.strokeStyle = 'rgba(80,220,200,0.07)'
-        ctx.lineWidth = 5
-        ctx.arc(0, 0, rad, 0, Math.PI * 2)
-        ctx.stroke()
-        const v = Math.max(0.02, Math.min(1, gauges[k]))
-        ctx.beginPath()
-        ctx.strokeStyle = ['rgba(110,240,218,0.75)', 'rgba(160,200,255,0.7)', 'rgba(255,150,190,0.6)'][k]
-        ctx.lineWidth = 3
-        ctx.arc(0, 0, rad, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * v)
-        ctx.stroke()
+      ctx.globalAlpha = 0.5
+      for (const s of streams) {
+        const drift = (t * 60 * s.sp + s.off) % (w - sx)
+        const x = sx + drift
+        ctx.fillStyle = 'rgba(90,230,200,.5)'
+        for (let k = 0; k < s.len; k++) {
+          const xx = x + k * 4
+          if (xx < w - 4) ctx.fillRect(xx, s.y, 2.4, 1.6)
+        }
       }
       ctx.restore()
 
+      // 中心球
+      ctx.save(); ctx.translate(cx, cy)
+      for (let k = 0; k < 2; k++) {
+        ctx.beginPath(); ctx.strokeStyle = 'rgba(90,240,215,' + (0.16 - k * 0.06) + ')'
+        ctx.lineWidth = 1; ctx.arc(0, 0, R * (0.55 + k * 0.22), 0, Math.PI * 2); ctx.stroke()
+      }
       for (const n of nodes) {
-        n.x += n.vx; n.y += n.vy
-        if (n.x < 0 || n.x > w) n.vx *= -1
-        if (n.y < 0 || n.y > h) n.vy *= -1
-        const d = Math.hypot(n.x - cx, n.y - cy)
-        if (d < 260) { n.x += (n.x - cx) / d * 0.25; n.y += (n.y - cy) / d * 0.25 }
+        n.a += n.sp
+        const x = Math.cos(n.a) * n.rad, y = Math.sin(n.a) * n.rad * 0.72
+        ctx.beginPath(); ctx.strokeStyle = 'rgba(80,220,200,.16)'; ctx.lineWidth = 0.6
+        ctx.moveTo(0, 0); ctx.lineTo(x, y); ctx.stroke()
+        ctx.beginPath(); ctx.fillStyle = n.pink ? 'rgba(255,150,195,.9)' : 'rgba(150,245,225,.9)'
+        ctx.arc(x, y, n.r, 0, 6.283); ctx.fill()
       }
-
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const a = nodes[i], b = nodes[j]
-          const dx = a.x - b.x, dy = a.y - b.y
-          const dist = Math.hypot(dx, dy)
-          if (dist < 132) {
-            ctx.beginPath()
-            ctx.strokeStyle = 'rgba(90,220,200,' + (0.18 * (1 - dist / 132)).toFixed(3) + ')'
-            ctx.lineWidth = 0.6
-            ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y)
-            ctx.stroke()
-          }
-        }
-      }
-
-      for (const n of nodes) {
-        ctx.beginPath()
-        ctx.fillStyle = n.hue === 'pink' ? 'rgba(255,140,190,0.9)' : 'rgba(140,240,225,0.85)'
-        ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2)
-        ctx.fill()
-      }
-
-      if (Math.random() < 0.10 + Math.min(0.12, statRef.current.mem * 0.01)) {
-        const a = nodes[Math.floor(Math.random() * nodes.length)]
-        const b = nodes[Math.floor(Math.random() * nodes.length)]
-        if (a && b) pulses.push({ a, b, p: 0 })
-      }
-      for (let i = pulses.length - 1; i >= 0; i--) {
-        const p = pulses[i]
-        p.p += 0.035
-        if (p.p >= 1) { pulses.splice(i, 1); continue }
-        const x = p.a.x + (p.b.x - p.a.x) * p.p
-        const y = p.a.y + (p.b.y - p.a.y) * p.p
-        ctx.beginPath()
-        ctx.fillStyle = 'rgba(220,255,250,0.95)'
-        ctx.arc(x, y, 1.8, 0, Math.PI * 2)
-        ctx.fill()
-      }
+      const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, 46)
+      gr.addColorStop(0, 'rgba(170,255,240,.9)'); gr.addColorStop(1, 'rgba(60,220,200,0)')
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0, 46 + Math.sin(t * 3) * 4, 0, 6.283); ctx.fill()
+      ctx.restore()
 
       raf = requestAnimationFrame(draw)
     }
     draw()
-    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize) }
+    return () => { cancelAnimationFrame(raf); removeEventListener('resize', resize) }
   }, [])
 
-  return (
-    <div className="neural-root">
-      <canvas ref={cv} className="neural-canvas" />
+  const v = stat.v
+  const d = v ? v.derived : null
+  const agents = MENU.map((m, i) => ({ ...m, n: String(i + 1).padStart(2, '0'), st: i === 0 ? '运行中' : (i % 3 === 0 ? '待命' : '空闲') }))
 
-      <header className="neural-head">
-        <div className="tag">AGENT OPS / 大肥鱼</div>
-        <h1>数字生命 运行中</h1>
-        <p>内稳态 · 记忆突触 · 空间行为 — 实时状态见右侧</p>
+  return (
+    <div className="ops-root">
+      <canvas ref={cv} className="ops-canvas" />
+
+      <header className="ops-head">
+        <div className="ops-title">AGENT OPS <i>/</i> DISPATCH CENTER</div>
+        <div className="ops-sub">DIGITAL LIFE · 大肥鱼 · FUEL {stat.mem} MEM</div>
       </header>
 
-      <div className="neural-stats">
-        <div><b>{stat.mem || '—'}</b><span>记忆条目</span></div>
-        <div><b>{stat.vitals ? Math.round(stat.vitals.derived.energy * 100) : '—'}</b><span>精力</span></div>
-        <div><b>{stat.vitals ? Math.round(stat.vitals.derived.mood * 100) : '—'}</b><span>心情</span></div>
-        <div><b>{stat.spot || '—'}</b><span>{stat.act || '位置'}</span></div>
-      </div>
+      <section className="ops-grid">
+        {Array.from({ length: 18 }).map((_, i) => (
+          <div className="ops-cell" key={i}>
+            <span className="ops-id">AG-{String(i + 101).slice(1)}</span>
+            <span className={'ops-dot' + (i % 4 === 0 ? ' hot' : '')} />
+            <span className="ops-st">{i % 5 === 0 ? 'SYNC' : i % 3 === 0 ? 'IDLE' : 'RUN'}</span>
+          </div>
+        ))}
+      </section>
 
-      <nav className="neural-rail">
+      <section className="ops-gauges">
+        {[['精力', d?.energy], ['心情', d?.mood], ['抗压', d ? 1 - d.stress : null]].map(([label, val]) => (
+          <div className="ops-gauge" key={label}>
+            <div className="ops-glabel">{label}</div>
+            <div className="ops-bar"><i style={{ width: Math.round((val || 0) * 100) + '%' }} /></div>
+            <div className="ops-gval">{val == null ? '--' : Math.round(val * 100)}</div>
+          </div>
+        ))}
+        <div className="ops-where">{stat.spot || '—'} · {stat.act || '—'}</div>
+      </section>
+
+      <nav className="ops-rail">
         {MENU.map((m) => (
-          <button key={m.key} className="rail-btn" onClick={() => nav(m.path)}>
-            <span className="rail-label">{m.label}</span>
-            <span className="rail-desc">{m.desc}</span>
+          <button key={m.k} className="ops-btn" onClick={() => nav(m.p)}>
+            <span className="ops-bl">{m.l}</span>
+            <span className="ops-bd">{m.k.toUpperCase()}</span>
           </button>
         ))}
-        <button className="rail-btn rail-quit" onClick={() => { logout(); nav('/login') }}>
-          <span className="rail-label">退出登录</span>
-          <span className="rail-desc">{user?.username || '当前账号'}</span>
+        <button className="ops-btn ops-quit" onClick={() => { logout(); nav('/login') }}>
+          <span className="ops-bl">退出登录</span>
+          <span className="ops-bd">{user?.username || 'USER'}</span>
         </button>
       </nav>
 
-      <div className="neural-foot">
-        <span>memory · bge-m3</span>
-        <span>vitals · 12</span>
-        <span>{stat.vitals ? stat.vitals.labels.label_thirst : ''}</span>
-      </div>
+      <section className="ops-panels">
+        <div className="ops-panel">
+          <div className="ops-ph">TASK FEED / EVENT LOG</div>
+          <div className="ops-pl">
+            {LOG_LINES.map((l, i) => (
+              <div key={i} className="ops-li"><b>{(240 + i).toString().slice(-3)}</b>{l}</div>
+            ))}
+          </div>
+        </div>
+        <div className="ops-panel">
+          <div className="ops-ph">ADVECTION / PARTICLE SOLVER</div>
+          <div className="ops-pv">
+            {[d?.energy, d?.mood, d ? 1 - d.stress : 0, v ? v.state.thirst : 0, v ? v.state.hunger : 0].map((x, i) => (
+              <div key={i} className="ops-vrow">
+                <span>{['ENERGY', 'MOOD', 'CALM', 'THIRST', 'HUNGER'][i]}</span>
+                <div className="ops-vbar"><i style={{ width: Math.round((x || 0) * 100) + '%' }} /></div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="ops-panel">
+          <div className="ops-ph">AGENTS / DISPATCH</div>
+          <div className="ops-pl">
+            {agents.map((a) => (
+              <div key={a.k} className="ops-li"><b>{a.n}</b>{a.l}<em>{a.st}</em></div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <footer className="ops-foot">
+        <span>MEM {stat.mem}</span><span>TICK {stat.ticks}</span>
+        <span>{v ? v.tags?.slice(0, 2).join(' · ') : '—'}</span>
+      </footer>
     </div>
   )
 }
