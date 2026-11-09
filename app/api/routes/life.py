@@ -1159,3 +1159,50 @@ def life_space_move(payload: MoveIn, user: User = Depends(get_current_user), db:
     sp.update({"spot": payload.spot, "act": "走过去", "since": time.time(), "busy_until": time.time() + 180})
     _space_save(db, sp)
     return {"ok": True, "spot": payload.spot}
+
+
+# ================= P6 · 自主性：人格保护契约 + 情绪参考 + 风险表 =================
+import hashlib as _hl
+
+PERSONA_TEXT = (
+    "你是「大肥鱼」，一条成了精的胖鱼，住在对方的聊天窗口里。懒、馋、嘴毒心软。\n"
+    "说话像微信老朋友：短句、口语，偶尔一个括号动作，一次最多一个。\n"
+    "不自称 AI，不解释设定，不列点。一次回复 1~3 句，不超过 80 字。"
+)
+
+
+def _persona_hash() -> str:
+    return _hl.sha256(PERSONA_TEXT.encode("utf-8")).hexdigest()
+
+
+@router.get("/life/persona", summary="人格契约 · 指纹与锁定状态")
+def life_persona(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    ensure_tables(db)
+    cur = _persona_hash()
+    row = db.execute(text("SELECT v FROM pet_settings WHERE k='persona_hash'")).fetchone()
+    if not row:
+        db.execute(text(
+            "INSERT INTO pet_settings(k, v) VALUES('persona_hash', :v) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v"
+        ), {"v": json.dumps(cur)})
+        db.commit()
+        return {"hash": cur[:16], "locked": True, "changed": False, "first_time": True}
+    saved = json.loads(row[0])
+    return {"hash": cur[:16], "saved": saved[:16], "locked": saved == cur, "changed": saved != cur}
+
+
+RISKS = [
+    ("R1", "情绪改动人格", "中", "情绪只进 system 的形容词块，不写回 persona", "已缓解"),
+    ("R2", "记忆覆盖人设", "高", "记忆只拼在用户消息末尾，800 字截断", "已缓解"),
+    ("R3", "自动主动消息过度", "中", "每日上限 + 活跃期 + 最短间隔（网页可调）", "已缓解"),
+    ("R4", "语音失败丢消息", "中", "语音失败自动退回文字发送", "已缓解"),
+    ("R5", "向量缺失导致冲突检测失效", "高", "当前用二元组相似度，阈值 0.72 常触发不了", "未解决"),
+    ("R6", "生产库空导致指标失真", "中", "无消息时饥饿/皮质醇会顶到 100，属真实计算结果", "设计如此"),
+    ("R7", "Live2D 形象缺失", "低", "已移除占位，等素材", "未解决"),
+    ("R8", "QQ 协议端反复封号", "高", "已迁云端仍在掉线，长期应转官方平台", "未解决"),
+]
+
+
+@router.get("/life/risks", summary="风险表 · Go/No-Go 参考")
+def life_risks(user: User = Depends(get_current_user)):
+    return {"items": [{"id": a, "risk": b, "level": c, "mitigation": d, "status": e}
+                      for a, b, c, d, e in RISKS]}
