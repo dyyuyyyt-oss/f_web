@@ -423,6 +423,13 @@ async def life_chat(payload: ChatIn, db: Session = Depends(get_db), user: User =
             _rebuild_memory_block(db)
         except Exception:
             pass
+        # 同步进记忆库（P5-5：文字与语音走同一条路）
+        try:
+            if len(payload.text.strip()) >= 4:
+                _mem_write(db, "他说：" + payload.text.strip()[:80] + "｜我说：" + reply[:80],
+                           "topic", 0.30)
+        except Exception:
+            pass
         return {"ok": True, "reply": reply}
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
