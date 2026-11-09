@@ -29,3 +29,13 @@
   .rail-btn:hover{transform:none}
   .neural-foot{display:none}
 }
+.neural-head,.neural-rail,.neural-stats{animation:neuralIn .8s cubic-bezier(.2,.8,.2,1) both}
+.neural-rail{animation-delay:.12s}
+.neural-stats{animation-delay:.22s}
+@keyframes neuralIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.neural-rail{transform:translateY(-50%)}
+.neural-rail{animation-name:railIn}
+@keyframes railIn{from{opacity:0;transform:translate(20px,-50%)}to{opacity:1;transform:translate(0,-50%)}}
+.rail-quit{margin-top:6px;border-color:rgba(255,140,150,.22)}
+.rail-quit:hover{border-color:rgba(255,140,150,.6);box-shadow:0 0 22px rgba(255,120,140,.2)}
+@media (prefers-reduced-motion:reduce){.neural-head,.neural-rail,.neural-stats{animation:none}}

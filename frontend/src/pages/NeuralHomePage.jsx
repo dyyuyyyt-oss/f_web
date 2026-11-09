@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FEATURES } from '../config/features'
+import { useAuth } from '../context/AuthContext'
+import { authFetch } from '../api/http'
 import './neural.css'
 
 const MENU = [
@@ -9,17 +10,43 @@ const MENU = [
   { key: 'life', label: '生活面板', path: '/life', desc: '大肥鱼' },
   { key: 'aibox', label: 'AI 盒子', path: '/aibox', desc: '角色工坊' },
   { key: 'home', label: '功能大厅', path: '/hall', desc: '全部功能' },
+  { key: 'admin', label: '设置', path: '/admin', desc: '后台管理' },
 ]
 
 export default function NeuralHomePage() {
   const cv = useRef(null)
   const nav = useNavigate()
+  const { user, logout } = useAuth()
+  const [stat, setStat] = useState({ mem: 0, vitals: null, spot: '', act: '' })
+  const statRef = useRef({ mem: 0, vitals: null, spot: '', act: '' })
+
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      const out = { mem: 0, vitals: null, spot: '', act: '' }
+      try {
+        const [m, v, s] = await Promise.all([
+          authFetch('/api/life/memory'),
+          authFetch('/api/life/vitals'),
+          authFetch('/api/life/space'),
+        ])
+        if (m.ok) out.mem = (await m.json()).total || 0
+        if (v.ok) out.vitals = await v.json()
+        if (s.ok) { const sj = await s.json(); out.spot = sj.spot_name || ''; out.act = sj.act || '' }
+      } catch (e) { /* 离线也不崩 */ }
+      if (alive) { statRef.current = out; setStat(out) }
+    }
+    load()
+    const timer = setInterval(load, 30000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [])
 
   useEffect(() => {
     const canvas = cv.current
     const ctx = canvas.getContext('2d')
     let w = 0, h = 0, raf = 0
-    const DPR = Math.min(window.devicePixelRatio || 1, 2)
+    const lowEnd = (navigator.hardwareConcurrency || 4) <= 4 || window.innerWidth < 640
+    const DPR = lowEnd ? 1 : Math.min(window.devicePixelRatio || 1, 1.5)
     const nodes = []
     const pulses = []
     const resize = () => {
@@ -29,7 +56,8 @@ export default function NeuralHomePage() {
       canvas.style.width = w + 'px'; canvas.style.height = h + 'px'
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
       nodes.length = 0
-      const n = Math.max(46, Math.min(110, Math.floor((w * h) / 16000)))
+      const base = Math.max(34, Math.min(96, Math.floor((w * h) / 19000)))
+      const n = Math.max(24, Math.min(120, base + Math.min(24, statRef.current.mem * 2)))
       for (let i = 0; i < n; i++) {
         nodes.push({
           x: Math.random() * w, y: Math.random() * h,
@@ -54,13 +82,24 @@ export default function NeuralHomePage() {
       ctx.fillStyle = g
       ctx.fillRect(0, 0, w, h)
 
+      const vit = statRef.current.vitals
+      const gauges = vit && vit.derived
+        ? [vit.derived.energy, vit.derived.mood, 1 - vit.derived.stress]
+        : [0.5, 0.5, 0.5]
       ctx.save()
       ctx.translate(cx, cy)
       for (let k = 0; k < 3; k++) {
+        const rad = 88 + k * 62
         ctx.beginPath()
-        ctx.strokeStyle = 'rgba(80,220,200,' + (0.05 - k * 0.012) + ')'
-        ctx.lineWidth = 1
-        ctx.arc(0, 0, 90 + k * 70 + Math.sin(t * 2 + k) * 6, t + k, t + k + Math.PI * 1.5)
+        ctx.strokeStyle = 'rgba(80,220,200,0.07)'
+        ctx.lineWidth = 5
+        ctx.arc(0, 0, rad, 0, Math.PI * 2)
+        ctx.stroke()
+        const v = Math.max(0.02, Math.min(1, gauges[k]))
+        ctx.beginPath()
+        ctx.strokeStyle = ['rgba(110,240,218,0.75)', 'rgba(160,200,255,0.7)', 'rgba(255,150,190,0.6)'][k]
+        ctx.lineWidth = 3
+        ctx.arc(0, 0, rad, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * v)
         ctx.stroke()
       }
       ctx.restore()
@@ -95,7 +134,7 @@ export default function NeuralHomePage() {
         ctx.fill()
       }
 
-      if (Math.random() < 0.14) {
+      if (Math.random() < 0.10 + Math.min(0.12, statRef.current.mem * 0.01)) {
         const a = nodes[Math.floor(Math.random() * nodes.length)]
         const b = nodes[Math.floor(Math.random() * nodes.length)]
         if (a && b) pulses.push({ a, b, p: 0 })
@@ -129,9 +168,10 @@ export default function NeuralHomePage() {
       </header>
 
       <div className="neural-stats">
-        <div><b>在线</b><span>deepseek-flash</span></div>
-        <div><b>记忆</b><span>语义检索</span></div>
-        <div><b>状态</b><span>12 项生理</span></div>
+        <div><b>{stat.mem || '—'}</b><span>记忆条目</span></div>
+        <div><b>{stat.vitals ? Math.round(stat.vitals.derived.energy * 100) : '—'}</b><span>精力</span></div>
+        <div><b>{stat.vitals ? Math.round(stat.vitals.derived.mood * 100) : '—'}</b><span>心情</span></div>
+        <div><b>{stat.spot || '—'}</b><span>{stat.act || '位置'}</span></div>
       </div>
 
       <nav className="neural-rail">
@@ -141,12 +181,16 @@ export default function NeuralHomePage() {
             <span className="rail-desc">{m.desc}</span>
           </button>
         ))}
+        <button className="rail-btn rail-quit" onClick={() => { logout(); nav('/login') }}>
+          <span className="rail-label">退出登录</span>
+          <span className="rail-desc">{user?.username || '当前账号'}</span>
+        </button>
       </nav>
 
       <div className="neural-foot">
-        {FEATURES.slice(0, 4).map((f) => (
-          <span key={f.id}>{f.title}</span>
-        ))}
+        <span>memory · bge-m3</span>
+        <span>vitals · 12</span>
+        <span>{stat.vitals ? stat.vitals.labels.label_thirst : ''}</span>
       </div>
     </div>
   )
