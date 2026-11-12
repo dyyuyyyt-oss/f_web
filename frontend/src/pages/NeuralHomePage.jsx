@@ -10,7 +10,7 @@ const MENU = [
   { k: 'life', l: '生活面板', p: '/life', d: '大肥鱼' },
   { k: 'aibox', l: 'AI 盒子', p: '/aibox', d: '角色工坊' },
   { k: 'home', l: '功能大厅', p: '/hall', d: '全部功能' },
-  { k: 'admin', l: '设置', p: '/admin', d: '后台' },
+  { k: 'admin', l: '设置', p: '/admin', d: '后台', admin: true },
 ]
 
 export default function NeuralHomePage() {
@@ -55,7 +55,7 @@ export default function NeuralHomePage() {
       <div className="ops-veil" />
 
       <nav className="ops-rail">
-        {MENU.map((m) => (
+        {MENU.filter((m) => !m.admin || user?.role === 'admin').map((m) => (
           <button key={m.k} className="ops-btn" onClick={() => nav(m.p)}>
             <span className="ops-bl">{m.l}</span>
             <span className="ops-bd">{m.d}</span>
