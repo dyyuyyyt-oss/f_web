@@ -9,18 +9,36 @@ const VIEWS = [
   { key: 'space', icon: '⌂', label: '空间' },
   { key: 'chat', icon: '◍', label: '对话' },
 ]
+const MEMORY_KINDS = [
+  ['', '全部类型'], ['fact', '事实'], ['emotion', '情绪'], ['preference', '偏好'],
+  ['promise', '承诺'], ['event', '事件'], ['quote', '原话'], ['boundary', '底线'], ['topic', '话题'],
+]
 
 export default function LifePage() {
-  const [view, setView] = useState('stars')
-  const [health, setHealth] = useState(null)
+  const [view, setView] = useState(() => {
+    const requested = new URLSearchParams(window.location.search).get('view')
+    return VIEWS.some((item) => item.key === requested) ? requested : 'stars'
+  })
   const [stats, setStats] = useState({ memories: 0, episodes: 0, days: 0, relations: 0 })
+  const [memoryQuery, setMemoryQuery] = useState('')
+  const [memoryKind, setMemoryKind] = useState('')
+  const [memoryHistory, setMemoryHistory] = useState(false)
+  const [memoryLayout, setMemoryLayout] = useState('stars')
+  const [selectedMemory, setSelectedMemory] = useState(null)
   const [say, setSay] = useState('…')
   const [msgs, setMsgs] = useState([])
+  const [historyCursor, setHistoryCursor] = useState(null)
+  const [historyHasMore, setHistoryHasMore] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
+  const [chatError, setChatError] = useState('')
+  const [chatStatus, setChatStatus] = useState('文字交流')
   const [speakOn, setSpeakOn] = useState(true)
   const [voice, setVoice] = useState('zh-CN-XiaoyiNeural')
   const [voices, setVoices] = useState([])
   const [vitals, setVitals] = useState(null)
   const [space, setSpace] = useState(null)
+  const [stateErrors, setStateErrors] = useState({ vitals: '', space: '' })
   const [refusal, setRefusal] = useState('')
   const [listening, setListening] = useState(false)
   const [recording, setRecording] = useState(false)
@@ -40,44 +58,65 @@ export default function LifePage() {
   const [voiceLevel, setVoiceLevel] = useState(0)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  const sendingRef = useRef(false)
+  const nearBottomRef = useRef(true)
+  const preserveScrollRef = useRef(null)
 
   const canvasRef = useRef(null)
   const hintRef = useRef(null)
   const dataRef = useRef({ nodes: [], edges: [] })
+  const projectRef = useRef(null)
   const sizeRef = useRef({ w: 0, h: 0 })
   const rotRef = useRef(0)
 
   /* ---------------- 数据 ---------------- */
   const loadHealth = useCallback(async () => {
     try {
-      const r = await authFetch('/api/life/health')
-      if (!r.ok) return
-      setHealth(await r.json())
-      try {
-        const v = await authFetch('/api/life/vitals')
-        if (v.ok) setVitals(await v.json())
-      } catch (e) { /* 忽略 */ }
-      try {
-        const s = await authFetch('/api/life/space')
-        if (s.ok) setSpace(await s.json())
-      } catch (e) { /* 忽略 */ }
-    } catch (e) { /* 忽略 */ }
+      const results = await Promise.allSettled([
+        authFetch('/api/life/vitals'), authFetch('/api/life/space'),
+      ])
+      if (results[0].status === 'fulfilled' && results[0].value.ok) {
+        try { setVitals(await results[0].value.json()); setStateErrors((old) => ({ ...old, vitals: '' })) }
+        catch (e) { setStateErrors((old) => ({ ...old, vitals: '状态读取失败' })) }
+      } else setStateErrors((old) => ({ ...old, vitals: '状态读取失败' }))
+      if (results[1].status === 'fulfilled' && results[1].value.ok) {
+        try { setSpace(await results[1].value.json()); setStateErrors((old) => ({ ...old, space: '' })) }
+        catch (e) { setStateErrors((old) => ({ ...old, space: '空间信息读取失败' })) }
+      } else setStateErrors((old) => ({ ...old, space: '空间信息读取失败' }))
+    } catch (e) { /* keep last valid data */ }
   }, [])
 
-  useEffect(() => {
-    ;(async () => {
-      try {
-        const r = await authFetch('/api/life/history')
-        if (r.ok) {
-          const d = await r.json()
-          if (Array.isArray(d.messages) && d.messages.length) {
-            setMsgs(d.messages.slice(-30))
-            setSay(d.messages[d.messages.length - 1].content)
-          }
-        }
-      } catch (e) { /* 忽略 */ }
-    })()
-  }, [])
+  const loadHistory = useCallback(async (beforeId = null) => {
+    if (historyLoading) return
+    setHistoryLoading(true)
+    setHistoryError('')
+    try {
+      const query = beforeId ? `?before_id=${beforeId}&limit=40` : '?limit=40'
+      const r = await authFetch('/api/life/history' + query)
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const d = await r.json()
+      const loaded = (d.messages || []).map((m) => ({
+        id: m.id, role: m.role === 'user' ? 'user' : 'bot', text: m.content || '',
+        createdAt: m.created_at, status: 'sent',
+      }))
+      if (beforeId) {
+        const el = logRef.current
+        preserveScrollRef.current = el ? { height: el.scrollHeight, top: el.scrollTop } : null
+        setMsgs((current) => [...loaded, ...current.filter((m) => !loaded.some((n) => n.id === m.id))])
+      } else {
+        setMsgs(loaded)
+        if (loaded.length) setSay(loaded[loaded.length - 1].text)
+      }
+      setHistoryCursor(d.next_cursor)
+      setHistoryHasMore(Boolean(d.has_more))
+    } catch (e) {
+      setHistoryError('聊天记录加载失败，请重试。')
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [historyLoading])
+
+  useEffect(() => { loadHistory() }, [])
 
   useEffect(() => {
     ;(async () => {
@@ -97,25 +136,50 @@ export default function LifePage() {
   }, [])
 
   useEffect(() => {
-    loadHealth()
-    const t = setInterval(loadHealth, 30000)
-    return () => clearInterval(t)
+    let alive = true
+    let active = false
+    let timer
+    const refresh = async () => {
+      if (active || !alive) return
+      active = true
+      try { if (!document.hidden) await loadHealth() }
+      finally {
+        active = false
+        if (alive) timer = setTimeout(refresh, 30000)
+      }
+    }
+    const onVisible = () => {
+      if (!document.hidden) {
+        clearTimeout(timer)
+        refresh()
+      }
+    }
+    refresh()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { alive = false; clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible) }
   }, [loadHealth])
 
   useEffect(() => {
     let alive = true
+    const timer = setTimeout(async () => {
     ;(async () => {
       try {
-        const r = await authFetch('/api/life/graph')
+        const params = new URLSearchParams()
+        if (memoryQuery.trim()) params.set('q', memoryQuery.trim())
+        if (memoryKind) params.set('kind', memoryKind)
+        if (memoryHistory) params.set('include_archived', 'true')
+        const r = await authFetch('/api/life/graph?' + params.toString())
         if (!r.ok) return
         const d = await r.json()
         if (!alive) return
         dataRef.current = { nodes: d.nodes || [], edges: d.edges || [] }
         setStats(d.stats || {})
+        setSelectedMemory((current) => current && (d.nodes || []).some((node) => node.id === current.id) ? current : null)
       } catch (e) { /* 忽略 */ }
     })()
-    return () => { alive = false }
-  }, [])
+    }, 250)
+    return () => { alive = false; clearTimeout(timer) }
+  }, [memoryQuery, memoryKind, memoryHistory])
 
   /* ---------------- 星图 ---------------- */
   useEffect(() => {
@@ -148,8 +212,11 @@ export default function LifePage() {
         z: 1 - Math.min(1, Math.hypot(n.x, n.y)) * 0.5,
       }
     }
+    projectRef.current = project
 
     const draw = (t) => {
+      if (document.hidden || memoryLayout !== 'stars' ||
+          (!window.matchMedia('(min-width: 960px)').matches && view !== 'stars')) return
       const { w, h } = sizeRef.current
       const nodes = dataRef.current.nodes
       const edges = dataRef.current.edges
@@ -194,8 +261,10 @@ export default function LifePage() {
         const pulse = 1 + 0.18 * Math.sin(t / 900 + (n.x + n.y) * 8)
         let color = 'rgba(220,232,255,.85)'
         let r = n.r * p.z
-        if (n.kind === 'fact') { color = 'rgba(246,192,74,.95)'; r *= 1.4 * pulse }
-        else if (n.kind === 'diary') { color = 'rgba(169,139,240,.95)'; r *= 1.2 }
+        if (['fact', 'preference', 'boundary', 'promise'].includes(n.kind)) { color = 'rgba(246,192,74,.95)'; r *= 1.35 * pulse }
+        else if (n.kind === 'emotion') { color = 'rgba(169,139,240,.95)'; r *= 1.2 }
+        else if (n.kind === 'event') color = 'rgba(94,200,242,.95)'
+        else if (n.kind === 'quote') color = 'rgba(111,224,160,.9)'
         else if (n.kind === 'self') {
           const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 26)
           g.addColorStop(0, 'rgba(255,255,255,.95)')
@@ -212,7 +281,16 @@ export default function LifePage() {
       }
       raf = requestAnimationFrame(draw)
     }
-    raf = requestAnimationFrame(draw)
+    const onVisibility = () => {
+      cancelAnimationFrame(raf)
+      if (!document.hidden && memoryLayout === 'stars' &&
+          (window.matchMedia('(min-width: 960px)').matches || view === 'stars')) {
+        raf = requestAnimationFrame(draw)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('resize', onVisibility)
+    onVisibility()
 
     const onMove = (ev) => {
       const rect = cv.getBoundingClientRect()
@@ -242,30 +320,51 @@ export default function LifePage() {
       cancelAnimationFrame(raf)
       ro.disconnect()
       cv.removeEventListener('pointermove', onMove)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('resize', onVisibility)
+      projectRef.current = null
     }
-  }, [])
+  }, [view, memoryLayout])
 
   /* ---------------- 对话 ---------------- */
-  const send = async () => {
-    const text = draft.trim()
-    if (!text || sending) return
-    setDraft('')
+  const send = async (text = draft.trim(), requestId = null) => {
+    if (!text || sendingRef.current) return
+    sendingRef.current = true
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.currentTime = 0
+    }
+    window.speechSynthesis?.cancel()
+    const id = requestId || (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`)
+    if (!requestId) setDraft('')
     setSending(true)
+    setChatError('')
+    setChatStatus('思考中')
     setSay('…')
-    setMsgs((m) => m.concat([{ role: 'user', text }]).slice(-40))
+    setMsgs((m) => requestId
+      ? m.map((item) => item.requestId === id ? { ...item, status: 'sending' } : item)
+      : m.concat([{ id: id, requestId: id, role: 'user', text, status: 'sending' }]))
     try {
       const r = await authFetch('/api/life/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, request_id: id }),
       })
-      const d = await r.json()
-      const reply = d.ok ? d.reply : '（信号不好）' + (d.error || '')
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok || !d.ok) throw new Error(d.detail || '服务暂时不可用')
+      const reply = d.reply
       setSay(reply)
-      setMsgs((m) => m.concat([{ role: 'bot', text: reply }]).slice(-40))
+      setDraft((current) => current === text ? '' : current)
+      setChatStatus('文字交流')
+      setMsgs((m) => [...m.map((item) => item.requestId === id ? { ...item, status: 'sent' } : item),
+        { id: `reply-${id}`, role: 'bot', text: reply, status: 'sent' }])
     } catch (e) {
-      setSay('（断线了）')
+      setChatStatus('连接失败')
+      setChatError(e.message || '发送失败，请重试。')
+      setDraft((current) => current || text)
+      setMsgs((m) => m.map((item) => item.requestId === id ? { ...item, status: 'failed' } : item))
     } finally {
+      sendingRef.current = false
       setSending(false)
       loadHealth()
     }
@@ -276,6 +375,7 @@ export default function LifePage() {
     let dead = false
     ;(async () => {
       try {
+        setChatStatus('准备朗读')
         const r = await authFetch('/api/life/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -287,6 +387,9 @@ export default function LifePage() {
         const url = URL.createObjectURL(blob)
         if (!audioRef.current) audioRef.current = new Audio()
         audioRef.current.src = url
+        audioRef.current.onplay = () => setChatStatus('朗读中')
+        audioRef.current.onended = () => { setChatStatus('文字交流'); URL.revokeObjectURL(url) }
+        audioRef.current.onerror = () => { setChatStatus('文字交流'); URL.revokeObjectURL(url) }
         try {
           const AC = window.AudioContext || window.webkitAudioContext
           if (!audioCtxRef.current) audioCtxRef.current = new AC()
@@ -347,13 +450,15 @@ export default function LifePage() {
     }
     rec.onerror = (ev) => {
       setRecording(false)
+      setChatStatus('文字交流')
       setInterim('')
       setRefusal('识别失败：' + (ev.error || '未知'))
     }
-    rec.onend = () => { setRecording(false); setInterim('') }
+    rec.onend = () => { setRecording(false); setInterim(''); setChatStatus('文字交流') }
     recogRef.current = rec
     rec.start()
     setRecording(true)
+    setChatStatus('正在听')
     setRefusal('')
   }
 
@@ -392,6 +497,7 @@ export default function LifePage() {
         stream.getTracks().forEach((t) => t.stop())
         ctx.close()
         setRecording(false)
+        setChatStatus('文字交流')
         setLevel(0)
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
         setLastClip({ size: blob.size, url: URL.createObjectURL(blob), at: Date.now() })
@@ -400,6 +506,7 @@ export default function LifePage() {
       recRef.current = rec
       rec.start()
       setRecording(true)
+      setChatStatus('正在听')
       setRefusal('')
     } catch (e) {
       setRefusal('麦克风打不开：' + (e.message || e.name))
@@ -430,7 +537,7 @@ export default function LifePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ voice: v }),
       })
-    } catch (e) { /* 忽略 */ }
+    } catch (e) { /* 声线设置失败不影响文字对话 */ }
   }
 
   const moveTo = async (id) => {
@@ -451,26 +558,89 @@ export default function LifePage() {
     try { await authFetch('/api/life/feed', { method: 'POST' }); loadHealth() } catch (e) { /* 忽略 */ }
   }
 
-  const hungerPct = health ? Math.min(1, health.hunger.value / 100) : 0
-  const hungerColor = hungerPct > 0.75 ? '#f2695c' : (hungerPct > 0.45 ? '#f6c04a' : '#5ec8f2')
+  const vitalColor = (key, value) => {
+    const highIsStrain = ['hunger', 'thirst', 'adenosine', 'cortisol', 'adrenaline']
+    if (highIsStrain.includes(key)) return value > 0.75 ? '#f2695c' : value > 0.52 ? '#f6c04a' : '#5ec8f2'
+    if (key === 'immune') return value < 0.3 ? '#f6c04a' : value > 0.62 ? '#6fe0a0' : '#5ec8f2'
+    return value < 0.25 ? '#f6c04a' : value > 0.72 ? '#6fe0a0' : '#5ec8f2'
+  }
 
   const logRef = useRef(null)
   useEffect(() => {
     const el = logRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+    if (preserveScrollRef.current) {
+      const prior = preserveScrollRef.current
+      el.scrollTop = prior.top + (el.scrollHeight - prior.height)
+      preserveScrollRef.current = null
+    } else if (nearBottomRef.current) el.scrollTop = el.scrollHeight
   }, [msgs, sending])
+
+  const handleLogScroll = (event) => {
+    const el = event.currentTarget
+    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+  }
+
+  const handleStarClick = (event) => {
+    const cv = canvasRef.current
+    const project = projectRef.current
+    if (!cv || !project) return
+    const rect = cv.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top
+    const R = Math.min(sizeRef.current.w, sizeRef.current.h * 1.5) * 0.46
+    let closest = null
+    let distance = 16
+    for (const node of dataRef.current.nodes) {
+      const point = project(node, R)
+      const current = Math.hypot(point.x - x, point.y - y)
+      if (current < distance) { closest = node; distance = current }
+    }
+    setSelectedMemory(closest)
+  }
 
   return (
     <div className="life-root">
       <header className="life-header">
         <span className="dot" /> 大肥鱼
         <span className="sub">{new Date().toTimeString().slice(0, 5)}</span>
-        <button className="life-back" onClick={() => navigate('/')}>← 返回大厅</button>
+        <button className="life-back" onClick={() => navigate('/')}>← 返回控制台</button>
       </header>
 
       <main className="life-main">
         <section className={'life-view' + (view === 'stars' ? ' on' : '')}>
-          <canvas id="life-stars" ref={canvasRef} />
+          <div className="life-memory-tools">
+            <input aria-label="搜索记忆" value={memoryQuery} onChange={(e) => setMemoryQuery(e.target.value)} placeholder="搜索记忆…" />
+            <select aria-label="筛选记忆类型" value={memoryKind} onChange={(e) => setMemoryKind(e.target.value)}>
+              {MEMORY_KINDS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+            <label><input type="checkbox" checked={memoryHistory} onChange={(e) => setMemoryHistory(e.target.checked)} />历史</label>
+            <button className={memoryLayout === 'stars' ? 'on' : ''} onClick={() => setMemoryLayout('stars')}>星图</button>
+            <button className={memoryLayout === 'list' ? 'on' : ''} onClick={() => setMemoryLayout('list')}>列表</button>
+          </div>
+          <canvas id="life-stars" ref={canvasRef} onClick={handleStarClick}
+            style={{ display: memoryLayout === 'stars' ? 'block' : 'none', cursor: 'pointer' }} />
+          {memoryLayout === 'list' && (
+            <div className="life-memory-list" aria-live="polite">
+              {dataRef.current.nodes.map((node) => (
+                <button key={node.id} onClick={() => setSelectedMemory(node)}>
+                  <strong>{node.kind} · {new Date((node.created_at || 0) * 1000).toLocaleDateString('zh-CN')}</strong>
+                  <span>{node.text}</span>
+                  {node.archived || node.superseded_by ? <small>历史记录</small> : null}
+                </button>
+              ))}
+              {!dataRef.current.nodes.length && <p>没有找到符合条件的记忆。</p>}
+            </div>
+          )}
+          {selectedMemory && (
+            <article className="life-memory-detail">
+              <button className="life-memory-close" aria-label="关闭记忆详情" onClick={() => setSelectedMemory(null)}>×</button>
+              <strong>{MEMORY_KINDS.find(([value]) => value === selectedMemory.kind)?.[1] || selectedMemory.kind}</strong>
+              <p>{selectedMemory.text}</p>
+              <small>重要性 {Math.round((selectedMemory.importance || 0) * 100)}% · 来源未关联 · {new Date((selectedMemory.created_at || 0) * 1000).toLocaleString('zh-CN')}</small>
+              {selectedMemory.archived || selectedMemory.superseded_by ? <small>已归档或被后续条目取代，原文保留</small> : null}
+            </article>
+          )}
           <div className="life-stats">
             <div className="life-stat"><b>{stats.memories}</b><span>记忆</span></div>
             <div className="life-stat"><b>{stats.episodes}</b><span>事件</span></div>
@@ -478,7 +648,7 @@ export default function LifePage() {
             <div className="life-stat"><b>{stats.relations}</b><span>关系</span></div>
           </div>
           <div className="life-curve">
-            <h4>遗忘曲线</h4>
+            <h4>遗忘机制示意</h4>
             <svg viewBox="0 0 120 52" preserveAspectRatio="none">
               <defs>
                 <linearGradient id="life-g1" x1="0" y1="0" x2="0" y2="1">
@@ -491,11 +661,12 @@ export default function LifePage() {
             </svg>
           </div>
           <div className="life-hint" ref={hintRef} />
-          <div className="life-tip">记忆库运作原理 · 鼠标悬停看细节</div>
+          <div className="life-tip">来自真实记忆条目 · 点选节点查看详情</div>
         </section>
 
         <section className={'life-view' + (view === 'health' ? ' on' : '')}>
           <div className="life-health">
+            {stateErrors.vitals && <div className="life-state-error" role="status">{stateErrors.vitals} · 显示最近一次可用数据</div>}
             <div className="vital-hero">
               <div className="vital-tags">
                 {(vitals && vitals.tags ? vitals.tags : []).map((t, i) => (
@@ -514,12 +685,12 @@ export default function LifePage() {
             </div>
 
             <div className="life-card life-bars">
-              <h3>十二套子系统</h3>
+              <h3>模拟生理状态 · 非医学测量</h3>
               {(vitals ? vitals.bars : []).map((b) => (
                 <div className="life-bar" key={b.key}>
                   <div className="name">{b.name}</div>
                   <div className="track">
-                    <div className="fill" style={{ width: (b.v * 100).toFixed(0) + '%', background: b.v > 0.7 ? '#f2695c' : (b.v > 0.4 ? '#f6c04a' : '#5ec8f2') }} />
+                    <div className="fill" style={{ width: (b.v * 100).toFixed(0) + '%', background: vitalColor(b.key, b.v) }} />
                   </div>
                   <div className="val">{(b.v * 100).toFixed(0)}</div>
                 </div>
@@ -569,7 +740,7 @@ export default function LifePage() {
               )}
             </div>
             <div className="space-info">
-              <b>{space ? space.spot_name + ' · ' + space.act : '—'}</b>
+              <b>{space ? space.spot_name + ' · ' + space.act : (stateErrors.space || '正在读取空间状态…')}</b>
               <span>{space && space.can_move ? '她愿意走走' : (space ? '还有 ' + Math.ceil(space.busy_left / 60) + ' 分钟才想动' : '')}</span>
               {refusal && <em>{refusal}</em>}
             </div>
@@ -581,9 +752,9 @@ export default function LifePage() {
             <div className="life-charbg">
               <div className="life-call">
                 <div className="aur" />
-                <div className="tag"><i />视频通话中</div>
+                <div className="tag"><i />文字交流</div>
                 
-                <div className="meta"><b>大肥鱼</b><span>在线 · 信号良好</span></div>
+                <div className="meta"><b>大肥鱼</b><span aria-live="polite">{chatStatus}</span></div>
                 <div className="life-wave">
                   {Array.from({ length: 22 }).map((_, i) => {
                     const shape = 0.35 + 0.65 * Math.abs(Math.sin(i * 0.9))
@@ -600,11 +771,29 @@ export default function LifePage() {
                   })}
                 </div>
               </div>
-              <div className="life-log" ref={logRef}>
+              <div className="life-log" ref={logRef} onScroll={handleLogScroll}>
+                {historyHasMore && (
+                  <button className="life-history-more" disabled={historyLoading}
+                    onClick={() => historyCursor && loadHistory(historyCursor)}>
+                    {historyLoading ? '正在加载…' : '加载更早的消息'}
+                  </button>
+                )}
+                {historyError && <div className="life-inline-error" role="alert">{historyError} <button onClick={() => loadHistory(historyCursor)}>重试</button></div>}
+                {historyLoading && !msgs.length && <div className="life-empty">正在加载聊天记录…</div>}
+                {!historyLoading && !msgs.length && !historyError && <div className="life-empty">还没有聊天记录，和大肥鱼说句话吧。</div>}
                 {msgs.map((m, i) => (
-                  <div key={i} className={'life-bubble ' + (m.role === 'user' ? 'me' : 'bot')}>{m.text}</div>
+                  <div key={m.id ?? `${m.requestId ?? m.role}-${i}`} className={'life-bubble ' + (m.role === 'user' ? 'me' : 'bot')}>
+                    <span>{m.text}</span>
+                    {m.status === 'sending' && <small className="life-message-state">发送中…</small>}
+                    {m.status === 'failed' && <div className="life-message-actions">
+                      <small className="life-message-state">发送失败</small>
+                      <button onClick={() => send(m.text, m.requestId)}>重试</button>
+                      <button onClick={() => navigator.clipboard?.writeText(m.text)}>复制</button>
+                    </div>}
+                  </div>
                 ))}
               </div>
+              {chatError && <div className="life-chat-error" role="alert">{chatError}</div>}
               {!asrSupported && (
                 <div className="life-asr-note">
                   语音识别仅支持 <b>Chrome / Edge</b>（含安卓版）；Safari、Firefox 请用文字输入。
@@ -653,7 +842,7 @@ export default function LifePage() {
                 onKeyDown={(e) => { if (e.key === 'Enter') send() }}
                 placeholder="说点什么…"
               />
-              <button className="life-btn main" onClick={send}>↑</button>
+              <button className="life-btn main" onClick={() => send()} disabled={sending || !draft.trim()} aria-label="发送消息">↑</button>
             </div>
           </div>
         </section>

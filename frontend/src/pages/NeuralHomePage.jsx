@@ -16,7 +16,7 @@ const MENU = [
 export default function NeuralHomePage() {
   const nav = useNavigate()
   const { user, logout } = useAuth()
-  const [stat, setStat] = useState({ mem: 0 })
+  const [stat, setStat] = useState({ mem: 0, activity: '', mood: '', topic: '' })
   const [entry, setEntry] = useState('/haloflux/lab.html')
   const box = useRef(null)
 
@@ -32,20 +32,35 @@ export default function NeuralHomePage() {
 
   useEffect(() => {
     let alive = true
+    let timer
     const load = async () => {
-      const o = { mem: 0 }
+      const o = { mem: 0, activity: '', mood: '', topic: '' }
       try {
-        const [m, s] = await Promise.all([
+        const results = await Promise.allSettled([
           authFetch('/api/life/memory'), authFetch('/api/life/space'),
+          authFetch('/api/life/vitals'), authFetch('/api/life/history?limit=40'),
         ])
-        if (m.ok) o.mem = (await m.json()).total || 0
-        void s
+        const [m, s, v, h] = results.map((result) => result.status === 'fulfilled' ? result.value : null)
+        if (m?.ok) o.mem = (await m.json()).total || 0
+        if (s?.ok) {
+          const space = await s.json()
+          o.activity = [space.spot_name, space.act].filter(Boolean).join(' · ')
+        }
+        if (v?.ok) {
+          const vitals = await v.json()
+          o.mood = vitals.labels?.label_mood || ''
+        }
+        if (h?.ok) {
+          const history = await h.json()
+          const lastUserMessage = [...(history.messages || [])].reverse().find((item) => item.role === 'user')
+          o.topic = lastUserMessage?.content || ''
+        }
       } catch (e) {}
       if (alive) setStat(o)
+      if (alive) timer = setTimeout(load, 30000)
     }
     load()
-    const t = setInterval(load, 30000)
-    return () => { alive = false; clearInterval(t) }
+    return () => { alive = false; clearTimeout(timer) }
   }, [])
 
   return (
@@ -53,6 +68,17 @@ export default function NeuralHomePage() {
       <iframe ref={box} className="ops-frame" src={entry} title="haloflux" scrolling="no" />
 
       <div className="ops-veil" />
+
+      <aside className="ops-return-card" aria-label="大肥鱼近况">
+        <span className="ops-return-eyebrow">大肥鱼 · 近况</span>
+        <strong>{stat.activity || '还没有今天的活动记录'}</strong>
+        <span>{stat.mood ? `状态：${stat.mood}` : '状态尚未读取'}</span>
+        <span className="ops-return-topic">上次聊到：{stat.topic ? stat.topic.slice(0, 44) : '还没有聊天记录'}</span>
+        <div>
+          <button onClick={() => nav('/life?view=chat')}>继续聊天</button>
+          <button onClick={() => nav('/life?view=space')}>看看她在做什么</button>
+        </div>
+      </aside>
 
       <nav className="ops-rail">
         {MENU.filter((m) => !m.admin || user?.role === 'admin').map((m) => (

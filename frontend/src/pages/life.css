@@ -30,6 +30,26 @@
   letter-spacing:2px;z-index:2;background:rgba(8,12,24,.5);padding:6px 14px;border-radius:20px;border:1px solid var(--life-line)}
 .life-hint{position:absolute;visibility:hidden;padding:5px 9px;border-radius:8px;background:rgba(6,10,22,.92);
   border:1px solid var(--life-line);font-size:11.5px;color:#cfe0ff;white-space:nowrap;z-index:3;pointer-events:none}
+.life-memory-tools{position:absolute;left:14px;right:14px;top:52px;z-index:4;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.life-memory-tools input:not([type=checkbox]),.life-memory-tools select{min-width:0;max-width:180px;padding:6px 9px;border:1px solid var(--life-line);
+  border-radius:8px;background:rgba(7,13,27,.88);color:#dce8ff;font-size:10px;outline:none}
+.life-memory-tools input:not([type=checkbox]){width:132px}
+.life-memory-tools label{display:flex;align-items:center;gap:3px;color:#a8badb;font-size:10px}
+.life-memory-tools button{padding:5px 8px;border:1px solid var(--life-line);border-radius:8px;background:rgba(7,13,27,.8);color:#a8badb;font-size:10px}
+.life-memory-tools button.on{border-color:rgba(94,200,242,.5);color:#dff3ff}
+.life-memory-list{position:absolute;inset:102px 12px 66px;z-index:3;overflow:auto;display:flex;flex-direction:column;gap:7px}
+.life-memory-list button{display:flex;flex-direction:column;gap:4px;padding:9px 11px;text-align:left;border:1px solid var(--life-line);
+  border-radius:10px;background:rgba(8,14,28,.9);color:#dbe6ff;cursor:pointer}
+.life-memory-list button strong{font-size:10px;color:#93a8cf;font-weight:500}
+.life-memory-list button span{font-size:12px;line-height:1.5}
+.life-memory-list button small{font-size:10px;color:#e3c486}
+.life-memory-list p{padding:12px;text-align:center;color:var(--life-dim);font-size:11px}
+.life-memory-detail{position:absolute;z-index:5;left:14px;right:14px;bottom:62px;padding:13px 38px 12px 14px;
+  border:1px solid rgba(94,200,242,.3);border-radius:13px;background:rgba(4,10,23,.96);box-shadow:0 12px 30px rgba(0,0,0,.35)}
+.life-memory-detail strong{font-size:11px;color:#8edcff}
+.life-memory-detail p{margin:6px 0;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.life-memory-detail small{display:block;margin-top:3px;color:#9fb0cc;font-size:10px}
+.life-memory-close{position:absolute;right:9px;top:7px;width:28px;height:28px;border:0;background:none;color:#cfe0ff;font-size:22px}
 
 /* 健康 */
 .life-health{padding:6px 16px 14px;height:100%;overflow-y:auto;overflow-x:hidden}
@@ -37,6 +57,8 @@
 .life-card{min-width:0;flex:1 1 0;background:var(--life-panel);border:1px solid var(--life-line);
   border-radius:16px;padding:14px 16px;backdrop-filter:blur(10px)}
 .life-card h3{margin:0 0 10px;font-size:11px;font-weight:500;color:var(--life-dim);letter-spacing:2px;text-align:center}
+.life-state-error{margin:0 0 8px;padding:7px 10px;border:1px solid rgba(246,192,74,.3);border-radius:9px;
+  background:rgba(90,65,16,.2);color:#ffe6a8;font-size:11px;text-align:center}
 .life-ring{display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative}
 .life-ring svg{transform:rotate(-90deg)}
 .life-ring .num{position:absolute;font-size:26px;font-weight:600;letter-spacing:1px}
@@ -127,6 +149,7 @@
   .life-dock input{padding:10px 14px}
   .life-stats{left:16px;top:12px}
   .life-tip{bottom:18px;font-size:11px}
+  .life-memory-list{inset:102px 12px 60px}
 }
 @media (min-width:1500px){
   .life-main{grid-template-columns:1.6fr .9fr 1.1fr;max-width:1680px;margin:0 auto;width:100%}
@@ -140,6 +163,17 @@
 .life-bubble.me{align-self:flex-end;background:rgba(63,127,214,.85);color:#fff;border-bottom-right-radius:4px}
 .life-bubble.bot{align-self:flex-start;background:rgba(18,26,44,.9);border:1px solid var(--life-line);
   color:#dbe6ff;border-bottom-left-radius:4px}
+.life-history-more,.life-inline-error,.life-empty{align-self:center;color:#9fb0d4;font-size:11px;text-align:center}
+.life-history-more{background:rgba(16,24,44,.9);border:1px solid var(--life-line);border-radius:99px;padding:5px 12px;cursor:pointer}
+.life-history-more:disabled{opacity:.6;cursor:wait}
+.life-inline-error{color:#ffb4aa}
+.life-inline-error button,.life-message-actions button{background:none;border:0;color:#8edcff;text-decoration:underline;cursor:pointer;font:inherit}
+.life-bubble .life-message-state{display:block;margin-top:3px;font-size:10px;opacity:.8}
+.life-message-actions{display:flex;align-items:center;gap:8px}
+.life-message-actions .life-message-state{margin:0}
+.life-chat-error{position:absolute;left:16px;right:16px;bottom:66px;z-index:5;text-align:center;color:#ffd0c8;
+  background:rgba(75,25,28,.92);border:1px solid rgba(242,105,92,.4);border-radius:10px;padding:6px 10px;font-size:11px}
+.life-dock button:disabled{opacity:.5;cursor:not-allowed}
 .life-btn.on{background:rgba(94,200,242,.18);border-color:rgba(94,200,242,.6);color:#bfe8ff}
 @media (min-width:960px){ .life-log{bottom:66px;max-height:42%} }
 

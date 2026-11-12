@@ -17,7 +17,7 @@ export const FEATURES = [
   {
     id: 'life',
     title: '生活面板',
-    desc: '她的健康、记忆星图与视频通话',
+    desc: '她的状态、记忆星图与生活空间',
     icon: '🐋',
     to: '/life',
     status: 'ready',

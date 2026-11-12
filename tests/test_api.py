@@ -26,22 +26,16 @@ def test_health_check():
     assert "use_mock_ai" in response.json()
 
 
-def test_list_characters():
-    """测试获取角色列表"""
+def test_list_characters_requires_auth():
+    """角色列表是受保护接口，未登录请求应拒绝。"""
     response = client.get("/api/characters")
-    assert response.status_code == 200
-    assert isinstance(response.json(), list)
-    assert len(response.json()) > 0  # 应该有示例角色
+    assert response.status_code == 401
 
 
-def test_get_character():
-    """测试获取单个角色"""
+def test_get_character_requires_auth():
+    """角色详情是受保护接口，未登录请求应拒绝。"""
     response = client.get("/api/characters/1")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["id"] == 1
-    assert "name" in data
-    assert "persona" in data
+    assert response.status_code == 401
 
 
 def test_root():

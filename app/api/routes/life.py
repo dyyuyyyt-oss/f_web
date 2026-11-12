@@ -12,7 +12,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -202,6 +202,22 @@ def _pet_chat_table(db: Session) -> None:
         ddl = ("CREATE TABLE IF NOT EXISTS pet_chat ("
                "id BIGSERIAL PRIMARY KEY, role VARCHAR(16), content TEXT, created_at VARCHAR(32))")
     db.execute(text(ddl))
+    # Incremental, idempotent migration for existing installations.
+    columns = {row[1] for row in db.execute(text("PRAGMA table_info(pet_chat)")).fetchall()} if dialect == "sqlite" else {
+        row[0] for row in db.execute(text(
+            "SELECT column_name FROM information_schema.columns WHERE table_name='pet_chat'"
+        )).fetchall()
+    }
+    if "request_id" not in columns:
+        db.execute(text("ALTER TABLE pet_chat ADD COLUMN request_id VARCHAR(64)"))
+    if "request_state" not in columns:
+        db.execute(text("ALTER TABLE pet_chat ADD COLUMN request_state VARCHAR(16)"))
+    if "request_updated_at" not in columns:
+        db.execute(text("ALTER TABLE pet_chat ADD COLUMN request_updated_at VARCHAR(32)"))
+    db.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_pet_chat_user_request "
+        "ON pet_chat(request_id) WHERE role='user' AND request_id IS NOT NULL"
+    ))
     db.commit()
 
 
@@ -234,16 +250,29 @@ def _rebuild_memory_block(db: Session) -> str:
 
 
 @router.get("/life/history", summary="大肥鱼 · 网页聊天记录")
-def life_history(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def life_history(
+    before_id: int | None = Query(default=None, gt=0),
+    limit: int = Query(default=40, ge=1, le=100),
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
     ensure_tables(db)
     try:
         _pet_chat_table(db)
-        rows = db.execute(text(
-            "SELECT role, content FROM pet_chat ORDER BY id DESC LIMIT 40"
-        )).fetchall()
-    except Exception:
-        rows = []
-    return {"messages": [{"role": r[0], "content": r[1]} for r in reversed(rows)]}
+        if before_id is None:
+            rows = db.execute(text(
+                "SELECT id, role, content, created_at FROM pet_chat ORDER BY id DESC LIMIT :limit"
+            ), {"limit": limit}).fetchall()
+        else:
+            rows = db.execute(text(
+                "SELECT id, role, content, created_at FROM pet_chat WHERE id < :before_id "
+                "ORDER BY id DESC LIMIT :limit"
+            ), {"before_id": before_id, "limit": limit}).fetchall()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="聊天记录暂时不可用") from exc
+    messages = [{"id": r[0], "role": r[1], "content": r[2], "created_at": r[3], "status": "sent"}
+                for r in reversed(rows)]
+    return {"messages": messages, "has_more": len(rows) == limit,
+            "next_cursor": messages[0]["id"] if messages else None}
 
 
 @router.get("/life/voices", summary="生活面板 · 可选声线")
@@ -306,50 +335,67 @@ def life_feed(user: User = Depends(get_current_user)):
 
 
 @router.get("/life/graph", summary="生活面板 · 记忆星图")
-def life_graph(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def life_graph(
+    q: str = "", kind: str = "", include_archived: bool = False,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
     ensure_tables(db)
     rng = random.Random(20261031)
-    nodes = [{"id": "self", "x": 0, "y": 0, "r": 13, "kind": "self", "label": "她"}]
-    edges = [{"a": "self", "b": "self", "w": 0}]
+    _mem_tables(db)
+    conditions = []
+    if not include_archived:
+        conditions.append("archived=0 AND superseded_by IS NULL")
+    if kind in KINDS:
+        conditions.append("kind=:kind")
+    where = " WHERE " + " AND ".join(conditions) if conditions else ""
+    params = {"kind": kind} if kind in KINDS else {}
+    episodes = db.execute(text(
+        "SELECT id, kind, text, importance, created_at, archived, superseded_by "
+        "FROM pet_episodes" + where + " ORDER BY id DESC LIMIT 1200"
+    ), params).fetchall()
+    query = (q or "").strip().casefold()
+    if query:
+        episodes = [row for row in episodes if query in (row[2] or "").casefold()]
+    episodes = episodes[:220]
 
-    rows, chars, days = [], [], 0
-    try:
-        rows = db.execute(text(
-            "SELECT content, created_at, role, speaker_id FROM message ORDER BY id DESC LIMIT 300"
-        )).fetchall()
-    except Exception:
-        rows = []
-    try:
-        chars = db.execute(text("SELECT id, name FROM character")).fetchall()
-    except Exception:
-        chars = []
-    try:
-        days = db.execute(text("SELECT COUNT(DISTINCT date(created_at)) FROM message")).scalar() or 0
-    except Exception:
-        days = 0
-
-    edges = []
-    for i, r in enumerate(rows[:220]):
+    nodes = []
+    node_ids = set()
+    for row in episodes:
         ang = rng.uniform(0, 2 * math.pi)
         dist = rng.uniform(0.3, 1.0) ** 0.85
-        nodes.append({"id": "m%d" % i, "x": math.cos(ang) * dist, "y": math.sin(ang) * dist,
-                      "r": 1.2 + rng.random() * 1.6, "kind": "msg",
-                      "label": (r[0] or "")[:36], "v": 0})
-    for i, c in enumerate(chars[:12]):
-        ang = rng.uniform(0, 2 * math.pi)
-        dist = rng.uniform(0.2, 0.5)
-        nodes.append({"id": "c%d" % i, "x": math.cos(ang) * dist, "y": math.sin(ang) * dist,
-                      "r": 6.5, "kind": "fact", "label": "角色 · " + (c[1] or ""), "v": 1})
-        edges.append({"a": "self", "b": "c%d" % i, "w": 0.6})
+        node_id = "e%d" % row[0]
+        node_ids.add(node_id)
+        nodes.append({
+            "id": node_id, "x": math.cos(ang) * dist, "y": math.sin(ang) * dist,
+            "r": 2.2 + min(4.0, max(0.0, float(row[3] or 0)) * 4),
+            "kind": row[1] or "fact", "label": (row[2] or "")[:48],
+            "text": row[2] or "", "importance": float(row[3] or 0),
+            "created_at": row[4], "archived": bool(row[5]),
+            "superseded_by": row[6], "source": "未关联来源对话",
+        })
+    all_edges = db.execute(text("SELECT a, b, w, rel FROM pet_edges ORDER BY at DESC LIMIT 2000")).fetchall()
+    def graph_id(value) -> str:
+        value = str(value)
+        return value if value.startswith("e") else "e" + value
+    edges = [{"a": graph_id(edge[0]), "b": graph_id(edge[1]), "w": float(edge[2] or 0), "rel": edge[3]}
+             for edge in all_edges if graph_id(edge[0]) in node_ids and graph_id(edge[1]) in node_ids]
+    event_count = sum(1 for row in episodes if row[1] == "event")
+    days = set()
+    for row in episodes:
+        try:
+            days.add(time.strftime("%Y-%m-%d", time.localtime(float(row[4] or 0))))
+        except (TypeError, ValueError, OSError):
+            continue
 
     return {
         "nodes": nodes, "edges": edges,
-        "stats": {"memories": len(chars), "episodes": len(rows), "days": int(days), "relations": len(chars)},
+        "stats": {"memories": len(nodes), "episodes": event_count, "days": len(days), "relations": len(edges)},
     }
 
 
 class ChatIn(BaseModel):
     text: str
+    request_id: str
 
 
 @router.post("/life/chat", summary="生活面板 · 皮套对话")
@@ -357,11 +403,9 @@ async def life_chat(payload: ChatIn, db: Session = Depends(get_db), user: User =
     ensure_tables(db)
     from app.services.ai_client import AIClient
 
-    st = load_state()
-    st["dopamine"] = min(100, int(st["dopamine"]) + 3)
-    st["oxytocin"] = min(100, int(st["oxytocin"]) + 2)
-    st["cortisol"] = max(0, int(st["cortisol"]) - 2)
-    save_state(st)
+    request_id = payload.request_id.strip()[:64]
+    if not request_id:
+        raise HTTPException(status_code=422, detail="request_id 不能为空")
 
     persona = (
         "你是「大肥鱼」，一条成了精的胖鱼，住在对方的聊天窗口里。懒、馋、嘴毒心软。\n"
@@ -370,18 +414,67 @@ async def life_chat(payload: ChatIn, db: Session = Depends(get_db), user: User =
     )
     try:
         _pet_chat_table(db)
-        db.execute(text("INSERT INTO pet_chat(role, content, created_at) VALUES('user', :c, :t)"),
-                   {"c": payload.text[:500], "t": time.strftime("%Y-%m-%d %H:%M:%S")})
+        existing = db.execute(text(
+            "SELECT id, request_state, request_updated_at FROM pet_chat WHERE role='user' AND request_id=:request_id"
+        ), {"request_id": request_id}).fetchone()
+        cached = db.execute(text(
+            "SELECT content FROM pet_chat WHERE role='assistant' AND request_id=:request_id ORDER BY id DESC LIMIT 1"
+        ), {"request_id": request_id}).fetchone()
+        if cached:
+            return {"ok": True, "reply": cached[0], "request_id": request_id, "replayed": True}
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
+        if existing and existing[1] == "processing" and existing[2] and existing[2] >= time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 300)):
+            raise HTTPException(status_code=409, detail="这条消息仍在处理中，请稍后重试")
+        if not existing:
+            db.execute(text(
+                "INSERT INTO pet_chat(role, content, created_at, request_id, request_state, request_updated_at) "
+                "VALUES('user', :c, :t, :request_id, 'processing', :updated)"
+            ), {"c": payload.text[:500], "t": now, "request_id": request_id, "updated": now})
+        else:
+            db.execute(text(
+                "UPDATE pet_chat SET request_state='processing', request_updated_at=:updated "
+                "WHERE id=:id"
+            ), {"updated": now, "id": existing[0]})
         db.commit()
-    except Exception:
-        pass
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        # A second tab may have inserted this same request. The partial unique
+        # index protects the history; the request can safely continue.
+        try:
+            prior = db.execute(text(
+                "SELECT content FROM pet_chat WHERE role='assistant' AND request_id=:request_id ORDER BY id DESC LIMIT 1"
+            ), {"request_id": request_id}).fetchone()
+            if prior:
+                return {"ok": True, "reply": prior[0], "request_id": request_id, "replayed": True}
+        except Exception:
+            db.rollback()
+        saved_user = db.execute(text(
+            "SELECT id, request_state, request_updated_at FROM pet_chat WHERE role='user' AND request_id=:request_id"
+        ), {"request_id": request_id}).fetchone()
+        if not saved_user:
+            raise HTTPException(status_code=503, detail="消息暂时无法保存，请重试") from exc
+        if saved_user[1] == "processing" and saved_user[2] and saved_user[2] >= time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 300)):
+            raise HTTPException(status_code=409, detail="这条消息仍在处理中，请稍后重试") from exc
+        db.execute(text(
+            "UPDATE pet_chat SET request_state='processing', request_updated_at=:updated WHERE id=:id"
+        ), {"updated": time.strftime("%Y-%m-%d %H:%M:%S"), "id": saved_user[0]})
+        db.commit()
 
+    # Only the current user's text is sent as the new turn. Previous turns keep
+    # their original roles; retrieved memories stay explicitly marked as data.
     try:
-        _vst = _drift(_load(db))
-        _vst = _react(_vst, payload.text)
-        _save(db, _vst)
+        previous = db.execute(text(
+            "SELECT role, content FROM pet_chat WHERE id < (SELECT MAX(id) FROM pet_chat "
+            "WHERE role='user' AND request_id=:request_id) AND "
+            "(role != 'user' OR request_state IS NULL OR request_state='complete') "
+            "ORDER BY id DESC LIMIT 12"
+        ), {"request_id": request_id}).fetchall()
+        previous = list(reversed(previous))
     except Exception:
-        pass
+        previous = []
 
     vitals_note = ""
     try:
@@ -401,12 +494,14 @@ async def life_chat(payload: ChatIn, db: Session = Depends(get_db), user: User =
     except Exception:
         mem_block = ""
 
-    user_content = payload.text + ("\n\n" + mem_block if mem_block else "")
+    user_content = payload.text[:500] + ("\n\n" + mem_block if mem_block else "")
     try:
         client = AIClient(provider=settings.ai_provider)
         result = await client.chat(
             messages=[
                 {"role": "system", "content": persona + ("\n\n" + vitals_note if vitals_note else "")},
+                *[{"role": role if role in ("user", "assistant") else "user", "content": content or ""}
+                  for role, content in previous],
                 {"role": "user", "content": user_content},
             ],
             temperature=1.0,
@@ -416,11 +511,29 @@ async def life_chat(payload: ChatIn, db: Session = Depends(get_db), user: User =
         reply = reply.strip()
         if not reply:
             raise RuntimeError("模型返回空内容")
+        if reply.startswith("[错误]"):
+            raise RuntimeError(reply)
         try:
-            db.execute(text("INSERT INTO pet_chat(role, content, created_at) VALUES('assistant', :c, :t)"),
-                       {"c": reply[:500], "t": time.strftime("%Y-%m-%d %H:%M:%S")})
+            db.execute(text("INSERT INTO pet_chat(role, content, created_at, request_id) VALUES('assistant', :c, :t, :request_id)"),
+                       {"c": reply[:500], "t": time.strftime("%Y-%m-%d %H:%M:%S"), "request_id": request_id})
             db.commit()
             _rebuild_memory_block(db)
+            db.execute(text(
+                "UPDATE pet_chat SET request_state='complete', request_updated_at=:updated "
+                "WHERE role='user' AND request_id=:request_id"
+            ), {"updated": time.strftime("%Y-%m-%d %H:%M:%S"), "request_id": request_id})
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        try:
+            st = load_state()
+            st["dopamine"] = min(100, int(st["dopamine"]) + 3)
+            st["oxytocin"] = min(100, int(st["oxytocin"]) + 2)
+            st["cortisol"] = max(0, int(st["cortisol"]) - 2)
+            save_state(st)
+            _vst = _react(_drift(_load(db)), payload.text)
+            _save(db, _vst)
         except Exception:
             pass
         # 同步进记忆库（P5-5：文字与语音走同一条路）
@@ -430,9 +543,17 @@ async def life_chat(payload: ChatIn, db: Session = Depends(get_db), user: User =
                            "topic", 0.30)
         except Exception:
             pass
-        return {"ok": True, "reply": reply}
+        return {"ok": True, "reply": reply, "request_id": request_id}
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        try:
+            db.execute(text(
+                "UPDATE pet_chat SET request_state='failed', request_updated_at=:updated "
+                "WHERE role='user' AND request_id=:request_id"
+            ), {"updated": time.strftime("%Y-%m-%d %H:%M:%S"), "request_id": request_id})
+            db.commit()
+        except Exception:
+            db.rollback()
+        raise HTTPException(status_code=503, detail="回复暂时不可用，请重试") from exc
 
 
 # ---------------- 机器人可调参数（网页里改，机器人轮询生效） ----------------
@@ -770,9 +891,7 @@ def life_vitals(db: Session = Depends(get_db), user: User = Depends(get_current_
     try:
         return _vitals_payload(db)
     except Exception as exc:
-        import traceback
-        return {"error": type(exc).__name__, "detail": str(exc)[:300],
-                "trace": traceback.format_exc()[-600:]}
+        raise HTTPException(status_code=503, detail="生命状态暂时不可用") from exc
 
 
 def _vitals_payload(db: Session) -> dict:
