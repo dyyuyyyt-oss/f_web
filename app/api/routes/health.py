@@ -76,5 +76,14 @@ def diag_db():
         user = u.username or ""
     except Exception:
         host, user = "", ""
-    return {"scheme": raw.split("://")[0] if "://" in raw else "", "host": host,
-            "user": user, "port": 5432, "has_pooler": "-pooler" in host}
+    import socket
+    v4 = v6 = []
+    try:
+        v4 = sorted({x[4][0] for x in socket.getaddrinfo(host, 5432, socket.AF_INET)})
+    except Exception as exc:
+        v4 = ["ERR:" + str(exc)[:40]]
+    try:
+        v6 = sorted({x[4][0] for x in socket.getaddrinfo(host, 5432, socket.AF_INET6)})
+    except Exception as exc:
+        v6 = ["ERR:" + str(exc)[:40]]
+    return {"host": host, "ipv4": v4[:3], "ipv6": v6[:2], "has_pooler": "-pooler" in host}
