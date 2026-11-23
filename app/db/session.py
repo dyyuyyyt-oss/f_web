@@ -14,6 +14,27 @@ from app.db.base import Base
 import os
 
 
+def _force_ipv4(url: str) -> str:
+    """Render 出站不通 IPv6，而驱动可能优先解析到 AAAA。这里解析 A 记录并强制 hostaddr。"""
+    try:
+        if "://" not in url or "@" not in url or "hostaddr" in url:
+            return url
+        scheme, rest = url.split("://", 1)
+        creds, hostpart = rest.split("@", 1)
+        host = hostpart.split("/")[0].split(":")[0].split("?")[0]
+        if not host or "sqlite" in scheme:
+            return url
+        import socket
+        infos = socket.getaddrinfo(host, 5432, socket.AF_INET)
+        if not infos:
+            return url
+        ip = infos[0][4][0]
+        sep = "&" if "?" in url else "?"
+        return url + sep + "hostaddr=" + ip
+    except Exception:
+        return url
+
+
 # 规范化数据库连接串：
 # Render 等平台提供的 DATABASE_URL 通常是 postgres:// 或不带驱动名的 postgresql://
 # SQLAlchemy 2.x 不再接受 postgres:// 前缀，且裸 postgresql:// 默认会尝试加载 psycopg2；
@@ -29,7 +50,7 @@ elif db_url.startswith("postgresql://"):
 if settings.database_url.startswith("sqlite"):
     # SQLite 配置：使用内存池避免多线程问题
     engine = create_engine(
-        db_url,
+        _force_ipv4(db_url),
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
         echo=settings.sqlalchemy_echo,
@@ -42,7 +63,7 @@ else:
     # connect_args.connect_timeout: 单次连接尝试最多等待 10 秒，
     #   避免数据库不可达时长时间卡住（曾实测在无超时限制的情况下卡住超过 2 分钟）
     engine = create_engine(
-        db_url,
+        _force_ipv4(db_url),
         echo=settings.sqlalchemy_echo,
         pool_pre_ping=True,
         pool_recycle=300,
