@@ -62,3 +62,19 @@ def health_check():
 )
 def liveness_check():
     return {"ok": True}
+
+
+@router.get("/_diag/db")
+def diag_db():
+    """只读诊断：返回数据库连接串的 host（不含密码）。"""
+    from app.core.config import settings
+    from urllib.parse import urlparse
+    raw = getattr(settings, "database_url", "") or ""
+    try:
+        u = urlparse(raw.replace("postgresql+psycopg2", "postgresql"))
+        host = u.hostname or ""
+        user = u.username or ""
+    except Exception:
+        host, user = "", ""
+    return {"scheme": raw.split("://")[0] if "://" in raw else "", "host": host,
+            "user": user, "port": 5432, "has_pooler": "-pooler" in host}
