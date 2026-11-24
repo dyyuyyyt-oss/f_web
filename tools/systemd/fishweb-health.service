@@ -1,0 +1,11 @@
+[Unit]
+Description=Fishweb local application and database health check
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/fishweb/tools/check_local_health.py
+TimeoutStartSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

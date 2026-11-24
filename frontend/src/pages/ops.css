@@ -47,3 +47,5 @@
   .ops-veil{background:linear-gradient(0deg,rgba(1,6,12,.82) 0%,rgba(1,6,12,0) 34%)}
 }
 @media (prefers-reduced-motion:reduce){.ops-rail{animation:none}}
+
+.ops-btn:focus-visible,.ops-return-card button:focus-visible{outline:2px solid #7ff2dd;outline-offset:3px;background:rgba(18,70,66,.8)}

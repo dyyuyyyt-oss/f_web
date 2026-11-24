@@ -565,11 +565,13 @@ def _pet_table(db: Session) -> None:
     db.commit()
 
 
-@router.get("/life/pet-settings", summary="机器人声线等参数（机器人轮询用，无需登录）")
-def get_pet_settings(db: Session = Depends(get_db)):
+@router.get("/life/pet-settings", summary="机器人声线等参数（需要登录）")
+def get_pet_settings(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     try:
         _pet_table(db)
-        rows = db.execute(text("SELECT k, v FROM pet_settings")).fetchall()
+        rows = db.execute(text(
+            "SELECT k, v FROM pet_settings WHERE k IN ('voice','prob','delay_min','delay_max','memory_block')"
+        )).fetchall()
     except Exception:
         rows = []
     data = dict(DEFAULT_PET)
@@ -1195,8 +1197,12 @@ def _save_ledger(db: Session) -> dict:
     db.execute(text(
         "INSERT INTO pet_settings(k, v) VALUES('ledger_hash', :h) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v"
     ), {"h": json.dumps(digest)})
+    saved_at = time.time()
+    db.execute(text(
+        "INSERT INTO pet_settings(k, v) VALUES('ledger_saved_at', :t) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v"
+    ), {"t": json.dumps(saved_at)})
     db.commit()
-    return {"count": n, "hash": digest}
+    return {"count": n, "hash": digest, "last_saved_at": saved_at}
 
 
 @router.get("/life/ledger", summary="账本 · 记录指纹")
@@ -1210,8 +1216,12 @@ def life_ledger(save: int = 0, user: User = Depends(get_current_user), db: Sessi
     except Exception:
         prev = None
     prev_hash = json.loads(prev[0]) if prev else ""
-    ok = (not prev_hash) or prev_hash == digest
-    return {"count": n, "hash": digest[:16], "prev": (prev_hash or "")[:16], "ok": ok}
+    saved = db.execute(text("SELECT v FROM pet_settings WHERE k='ledger_saved_at'")).fetchone()
+    matched = prev_hash == digest if prev_hash else None
+    return {"count": n, "hash": digest[:16], "prev": (prev_hash or "")[:16],
+            "matched_snapshot": matched, "last_saved_at": json.loads(saved[0]) if saved else None,
+            # Compatibility only: a changed snapshot does not prove tampering.
+            "ok": matched is not False}
 
 
 @router.get("/life/health-line", summary="体检 · 每日一行")

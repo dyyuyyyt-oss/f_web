@@ -16,7 +16,7 @@ const MENU = [
 export default function NeuralHomePage() {
   const nav = useNavigate()
   const { user, logout } = useAuth()
-  const [stat, setStat] = useState({ mem: 0, activity: '', mood: '', topic: '' })
+  const [stat, setStat] = useState({ mem: null, activity: '', mood: '', topic: '' })
   const [entry, setEntry] = useState('/haloflux/lab.html')
   const box = useRef(null)
 
@@ -33,8 +33,11 @@ export default function NeuralHomePage() {
   useEffect(() => {
     let alive = true
     let timer
+    let loading = false
     const load = async () => {
-      const o = { mem: 0, activity: '', mood: '', topic: '' }
+      if (document.hidden || loading) return
+      loading = true
+      const o = {}
       try {
         const results = await Promise.allSettled([
           authFetch('/api/life/memory'), authFetch('/api/life/space'),
@@ -56,16 +59,25 @@ export default function NeuralHomePage() {
           o.topic = lastUserMessage?.content || ''
         }
       } catch (e) {}
-      if (alive) setStat(o)
+      loading = false
+      if (alive) setStat((previous) => ({ ...previous, ...o }))
       if (alive) timer = setTimeout(load, 30000)
     }
     load()
-    return () => { alive = false; clearTimeout(timer) }
+    const onVisible = () => {
+      if (!document.hidden) { clearTimeout(timer); load() }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      alive = false
+      clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [])
 
   return (
     <div className="ops-root">
-      <iframe ref={box} className="ops-frame" src={entry} title="haloflux" scrolling="no" />
+      <iframe ref={box} className="ops-frame" src={entry} title="HALOFLUX" aria-hidden="true" tabIndex={-1} scrolling="no" />
 
       <div className="ops-veil" />
 
@@ -80,7 +92,7 @@ export default function NeuralHomePage() {
         </div>
       </aside>
 
-      <nav className="ops-rail">
+      <nav className="ops-rail" aria-label="功能导航">
         {MENU.filter((m) => !m.admin || user?.role === 'admin').map((m) => (
           <button key={m.k} className="ops-btn" onClick={() => nav(m.p)}>
             <span className="ops-bl">{m.l}</span>
@@ -93,7 +105,7 @@ export default function NeuralHomePage() {
         </button>
       </nav>
 
-      <div className="ops-credit">MEM {stat.mem} · 
+      <div className="ops-credit">MEM {stat.mem ?? '—'} · 
         visual · HALOFLUX by Ryder191（非商业授权） · <a href="https://github.com/Ryder191/haloflux" target="_blank" rel="noreferrer">来源</a>
       </div>
     </div>

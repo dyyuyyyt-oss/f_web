@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Fishweb locally every five minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+AccuracySec=10s
+Unit=fishweb-health.service
+
+[Install]
+WantedBy=timers.target
